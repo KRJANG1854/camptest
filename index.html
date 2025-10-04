@@ -60,13 +60,14 @@
   </style>
 </head>
 <body>
-  <div class="version-badge">V1</div>
+  <div class="version-badge">V1.1</div>
 
   <div class="app">
     <div class="toolbar">
       <div class="panel grid">
         <div class="row">
           <label class="file-label btn" for="mapFile">지도 업로드/교체</label>
+          <!-- 갤러리 선택을 위해 capture 제거 -->
           <input id="mapFile" type="file" accept="image/*" />
           <button class="btn" id="resetView" title="지도를 화면에 맞춰 재정렬">보기 리셋</button>
           <div class="spacer"></div>
@@ -381,7 +382,7 @@
 
   resetViewBtn.addEventListener('click', ()=>{ userAdjustedView=false; fitCover(); saveLocal(); });
 
-  // 업로드: iPhone 호환을 위해 FileReader(Data URL)만 사용
+  // 업로드: iPhone 갤러리 선택을 위해 FileReader(Data URL) 사용 + capture 제거
   mapFile.addEventListener('change', e => {
     const f = e.target.files && e.target.files[0]; if(!f) return;
     const reader = new FileReader();

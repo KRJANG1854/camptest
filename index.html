@@ -9,7 +9,7 @@
     --bg:#0b0b0f; --panel:#14151a; --muted:#7f8596; --text:#e9ecf1; --accent:#5aa2ff; --danger:#ff6b6b;
     --btn:#1c1f27; --btn2:#202431; --border:#2a3040;
   }
-  html,body{height:100%; overscroll-behavior:none;}
+  html,body{height:100%; overscroll-behavior:none; touch-action:manipulation;}
   body{margin:0;background:var(--bg);color:var(--text);
     font-family:system-ui,-apple-system,Segoe UI,Roboto,Pretendard,Apple SD Gothic Neo,Malgun Gothic,sans-serif;
     -webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;}
@@ -54,7 +54,7 @@
 </style>
 </head>
 <body>
-  <div class="version-badge">V2.4</div>
+  <div class="version-badge">V2.5</div>
 
   <div class="app">
     <div class="toolbar">
@@ -322,6 +322,17 @@
     if(mapImg.complete && mapImg.naturalWidth){ setStageSizeToNatural(); fitCover(); renderLabels(); }
     refresh();
   })();
+
+  /* ---------- 모바일 더블탭 확대 방지(페이지 zoom 방지) ---------- */
+  let lastTapTime = 0;
+  document.addEventListener('touchend', function(e) {
+    const now = Date.now();
+    if (now - lastTapTime < 350) {
+      e.preventDefault();
+    }
+    lastTapTime = now;
+  }, {passive: false});
+
 })();
 </script>
 </body>

@@ -26,6 +26,7 @@
     .btn[data-active="true"]{outline:2px solid var(--accent);}
     .btn:active{scale:.98}
     .btn.danger{background:#2a1515;border-color:#3a1c1c;color:#ffdede}
+    .btn.ghost{background:transparent}
     .seg{display:inline-flex;background:var(--btn2);border:1px solid var(--border);border-radius:12px;overflow:hidden}
     .seg button{all:unset;padding:10px 12px;cursor:pointer;color:var(--text);font-weight:700}
     .seg button[aria-pressed="true"]{background:var(--accent);color:black}
@@ -39,9 +40,9 @@
     .map-img{display:block;max-width:none;height:auto;pointer-events:none;user-select:none; touch-action:none}
     .labels{position:absolute;left:0;top:0;right:0;bottom:0}
 
-    /* ✅ 라벨 기준점을 '왼쪽·아래'로 고정 */
+    /* ✅ 라벨 기준: 가로 중앙(탭 지점이 라벨 중앙) + 아래쪽 붙임 */
     .label{
-      position:absolute;transform:translate(0,-100%);
+      position:absolute;transform:translate(-50%,-100%);
       padding:.35em .5em;border-radius:10px;border:1px solid rgba(255,255,255,.15);
       background:rgba(17,20,28,.85);color:#fff;font-weight:800;white-space:nowrap;letter-spacing:.02em;
       box-shadow:0 4px 10px rgba(0,0,0,.35)
@@ -61,6 +62,7 @@
     .grid{display:grid;gap:8px}
     .grid.cols-2{grid-template-columns:1fr 1fr}
 
+    /* 버전 배지 */
     .version-badge{
       position:fixed; right:10px; top:8px; z-index:1000;
       background:rgba(90,162,255,.15); border:1px solid var(--border); color:var(--text);
@@ -74,7 +76,7 @@
   </style>
 </head>
 <body>
-  <div class="version-badge">V1.8</div>
+  <div class="version-badge">V1.9</div>
 
   <div class="app">
     <div class="toolbar">
@@ -153,7 +155,7 @@
     view: { scale: 1, tx: 0, ty: 0 }
   };
 
-  /* ---------------- IndexedDB (이미지 저장) ---------------- */
+  /* ------------- IndexedDB (이미지 & 라벨 백업) ------------- */
   const DB_NAME = 'mapdb', STORE = 'kv';
   function idbOpen(){
     return new Promise((resolve, reject)=>{
@@ -211,7 +213,7 @@
     delBtns.none.setAttribute('aria-pressed', state.deleteMode==='none');
     delBtns.single.setAttribute('aria-pressed', state.deleteMode==='single');
     updateStatus();
-    saveLocal();
+    saveAll();
   }
   function dayDisplay(){ return state.mode==='extended' ? ('6'+state.day) : state.day; }
   function updateStatus(msg){
@@ -220,11 +222,15 @@
   }
 
   /* ---------------- Persistence (메타) ---------------- */
-  const LS_KEY = 'map-labeler-v6';
+  const LS_KEY = 'map-labeler-v7';
   let userAdjustedView = false;
   let coverMinScale = 1;
 
   function saveLocal(){ try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); }catch(e){} }
+  async function saveAll(){
+    saveLocal();
+    try{ await idbSet('labels', state.labels); }catch(e){}
+  }
   function loadLocal(){
     try{
       const raw = localStorage.getItem(LS_KEY);
@@ -236,6 +242,8 @@
     }catch(e){}
   }
   const debounce = (fn, ms=150) => { let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); } };
+  window.addEventListener('pagehide', saveAll);
+  document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState!=='visible') saveAll(); });
 
   /* ---------------- Image processing ---------------- */
   async function fileToDataURL(file){
@@ -267,18 +275,11 @@
   async function loadAndPersistImage(file){
     const dataUrl = await fileToDataURL(file);
     const compact = await downscaleDataURL(dataUrl);
-    // 1) 화면 적용
     setMap(compact);
-    // 2) 저장 (IndexedDB + small 백업)
     try { await idbSet('img', compact); } catch(e){}
     try {
-      if (compact.length < 3_500_000) { // 약 3.5MB 이하만 LS 백업
-        state.mapDataUrl = compact;
-        saveLocal();
-      } else {
-        state.mapDataUrl = ''; // 크면 IDB만
-        saveLocal();
-      }
+      if (compact.length < 3_500_000) { state.mapDataUrl = compact; saveLocal(); }
+      else { state.mapDataUrl = ''; saveLocal(); }
     } catch(e){}
   }
 
@@ -323,19 +324,15 @@
     refreshSelections();
   }
 
-  // ✅ 정확 좌표계: mapWrap 기준 → (tx,ty,scale) 역산 → '원본 이미지' 퍼센트
+  // ✅ 좌표계: wrap 기준 → (tx,ty,scale) 역적용 → 원본 이미지 퍼센트
   function clientToImagePercent(clientX, clientY){
     const wrap = mapWrap.getBoundingClientRect();
     const { scale, tx, ty } = state.view;
-
-    // 화면좌표 → 스테이지 원본좌표
     const xStage = (clientX - wrap.left - tx) / scale;
     const yStage = (clientY - wrap.top  - ty) / scale;
-
     const w = mapImg.naturalWidth  || mapImg.width;
     const h = mapImg.naturalHeight || mapImg.height;
     if(w<=0 || h<=0) return null;
-
     const xPct = Math.max(0, Math.min(100, +(xStage / w * 100).toFixed(4)));
     const yPct = Math.max(0, Math.min(100, +(yStage / h * 100).toFixed(4)));
     return { xPct, yPct };
@@ -362,7 +359,7 @@
     state.view = { scale: coverMinScale, tx, ty };
     applyView();
   }
-  const saveViewDebounced = debounce(saveLocal, 200);
+  const saveViewDebounced = debounce(saveAll, 200);
 
   function screenToStage(x,y){
     const wrap = mapWrap.getBoundingClientRect();
@@ -372,8 +369,7 @@
   function clamp(v,min,max){return Math.max(min, Math.min(max, v));}
 
   function clampViewToCover(){
-    const w = mapImg.naturalWidth  || 0;
-    const h = mapImg.naturalHeight || 0; if(!w||!h) return;
+    const w = mapImg.naturalWidth || 0, h = mapImg.naturalHeight || 0; if(!w||!h) return;
     const wrap = mapWrap.getBoundingClientRect();
     const stageW = w * state.view.scale;
     const stageH = h * state.view.scale;
@@ -433,7 +429,7 @@
         addLabelAt(e.clientX, e.clientY);
       }
     }
-    pointers.delete(e.pointerId); saveLocal();
+    pointers.delete(e.pointerId); saveAll();
   });
   mapWrap.addEventListener('pointercancel', e => { pointers.delete(e.pointerId); });
 
@@ -458,7 +454,7 @@
     if(ok){ state.labels = []; renderLabels(); refreshSelections(); }
   });
 
-  resetViewBtn.addEventListener('click', ()=>{ userAdjustedView=false; fitCover(); saveLocal(); });
+  resetViewBtn.addEventListener('click', ()=>{ userAdjustedView=false; fitCover(); saveAll(); });
 
   mapFile.addEventListener('change', async e => {
     const f = e.target.files && e.target.files[0]; if(!f) return;
@@ -507,7 +503,6 @@
   }
   window.addEventListener('resize', setMapHeight);
   window.addEventListener('orientationchange', setMapHeight);
-
   ['gesturestart','gesturechange','gestureend'].forEach(evt=>{
     document.addEventListener(evt, e => e.preventDefault(), {passive:false});
   });
@@ -518,18 +513,22 @@
   loadLocal();
   setMapHeight();
 
-  // 이미지 복구: 1) localStorage 데이터URL 2) IndexedDB 순서로 시도
   (async () => {
+    // 이미지 복구: 1) localStorage 2) IndexedDB
     if(state.mapDataUrl){
       setMap(state.mapDataUrl);
     } else {
       const fromIDB = await idbGet('img');
       if(fromIDB){ setMap(fromIDB); }
     }
+    // 라벨 복구: 1) LS 2) IndexedDB
+    if(!state.labels || state.labels.length===0){
+      const idbLabels = await idbGet('labels');
+      if(Array.isArray(idbLabels)) state.labels = idbLabels;
+    }
+    renderLabels();
+    refreshSelections();
   })();
-
-  renderLabels();
-  refreshSelections();
 })();
 </script>
 </body>

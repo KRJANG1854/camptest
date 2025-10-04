@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>모바일 지도로 요일 라벨러 v2</title>
+  <title>모바일 지도로 요일 라벨러 v2.1</title>
   <style>
     :root{
       --bg:#0b0b0f; --panel:#14151a; --muted:#7f8596; --text:#e9ecf1; --accent:#5aa2ff; --danger:#ff6b6b;
@@ -17,7 +17,7 @@
     .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
     .row label{font-size:14px;color:var(--muted)}
     .btn{appearance:none;border:1px solid var(--border);background:var(--btn);color:var(--text);padding:10px 12px;border-radius:12px;font-size:14px;line-height:1;font-weight:600;cursor:pointer;user-select:none}
-    .btn[data-active="true"]{outline:2px solid var(--accent);}
+    .btn[data-active="true"]{outline:2px solid var(--accent);}    
     .btn:active{scale:.98}
     .btn.danger{background:#2a1515;border-color:#3a1c1c;color:#ffdede}
     .btn.ghost{background:transparent}
@@ -57,7 +57,7 @@
       <div class="panel grid">
         <div class="row">
           <label class="file-label btn" for="mapFile">지도 업로드/교체</label>
-          <input id="mapFile" type="file" accept="image/*" />
+          <input id="mapFile" type="file" accept="image/*" capture="environment" />
           <button class="btn" id="resetView" title="지도를 화면에 맞춰 재정렬">보기 리셋</button>
           <div class="spacer"></div>
           <button class="btn" id="exportJson">JSON 내보내기</button>
@@ -116,14 +116,14 @@
   const delAllBtn = $('#delAll');
   const exportBtn = $('#exportJson');
 
-  const DAYS = ['\uC6D4','\uD654','\uC218','\uBAA9','\uAE08','\uD1A0','\uC77C']; // 월~일
+  const DAYS = ['월','화','수','목','금','토','일']; // 월~일
   const SIZES = [25,50,70,100];
 
   let state = {
     mapDataUrl: '',
     labels: [], // {xPct,yPct,text,size,kind:'normal'|'extended'}
     mode: 'normal',
-    day: '\uC6D4',
+    day: '월',
     size: 100,
     deleteMode: 'none',
     view: { scale: 1, tx: 0, ty: 0 }
@@ -151,21 +151,17 @@
     }
   }
   function refreshSelections(){
-    // mode
     modeBtns.normal.setAttribute('aria-pressed', state.mode==='normal');
     modeBtns.extended.setAttribute('aria-pressed', state.mode==='extended');
-    // day
     [...daySeg.children].forEach(ch => ch.setAttribute('aria-pressed', ch.textContent===state.day));
-    // size
     [...sizeSeg.children].forEach(ch => ch.setAttribute('aria-pressed', ch.textContent===state.size+'%'));
-    // delete
     delBtns.none.setAttribute('aria-pressed', state.deleteMode==='none');
     delBtns.single.setAttribute('aria-pressed', state.deleteMode==='single');
     updateStatus();
     saveLocal();
   }
   function dayDisplay(){
-    return state.mode==='extended' ? ('6'+state.day) : state.day; // 예: 6월, 6화...
+    return state.mode==='extended' ? ('6'+state.day) : state.day;
   }
   function updateStatus(){
     status.textContent = `모드: ${state.mode==='normal'?'일반':'연장'} · 요일: ${dayDisplay()} · 크기: ${state.size}% · 라벨 ${state.labels.length}개`;
@@ -174,7 +170,9 @@
   // ---------- Persistence ----------
   const LS_KEY = 'map-labeler-v2';
   let userAdjustedView = false; // 사용자가 팬/줌 했는지 여부
-  let coverMinScale = 1;        // 컨테이너 꽉 채우는 최소 배율(커버) 값 캐시
+  let coverMinScale = 1;        // 컨테이너 꽉 채우는 최소 배율(커버)
+  let currentBlobUrl = null;    // 업로드된 이미지의 object URL 관리
+
   function saveLocal(){
     try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); }catch(e){ console.warn('save failed', e); }
   }
@@ -186,15 +184,20 @@
       if(obj && typeof obj === 'object'){
         state = Object.assign(state, obj);
       }
+      // 이전 세션의 blob: URL은 무효이므로 제거
+      if(state.mapDataUrl && state.mapDataUrl.startsWith('blob:')){
+        state.mapDataUrl = '';
+      }
     }catch(e){ console.warn('load failed', e); }
   }
   const debounce = (fn, ms=150) => { let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args), ms); } };
 
   // ---------- Map & Labels rendering ----------
-  function setMap(dataUrl){
-    state.mapDataUrl = dataUrl;
-    mapImg.src = dataUrl;
-    mapImg.onload = () => { userAdjustedView=false; fitCover(); }
+  function setMap(url){
+    state.mapDataUrl = url;
+    mapImg.src = url;
+    mapImg.onerror = () => { alert('이미지 로딩에 실패했습니다. 다른 파일로 시도해 주세요.'); };
+    mapImg.onload  = () => { userAdjustedView=false; fitCover(); };
     saveLocal();
   }
 
@@ -221,7 +224,7 @@
 
   function addLabelAt(clientX, clientY){
     if(!mapImg.src) return;
-    if(state.deleteMode!=='none') return; // delete mode에서 추가 방지
+    if(state.deleteMode!=='none') return;
     const pt = clientToImagePercent(clientX, clientY);
     if(!pt) return;
     const text = dayDisplay();
@@ -245,21 +248,19 @@
     return {xPct, yPct};
   }
 
-  // ---------- Pinch Zoom & Pan with robust pointer tracking ----------
-  let pointers = new Map(); // id -> {x,y,prevX,prevY,downX,downY,downT}
+  // ---------- Pinch Zoom & Pan ----------
+  let pointers = new Map(); // id -> {x,y,prevX,prevY,downX,downY,downT,type}
 
   function applyView(){
     clampViewToCover();
     const v = state.view;
     stage.style.transform = `translate(${v.tx}px, ${v.ty}px) scale(${v.scale})`;
-  }px, ${v.ty}px) scale(${v.scale})`;
   }
   function fitCover(){
-    // 컨테이너를 여백 없이 가득 채우는(cover) 배율과 중심 정렬 계산
     const naturalW = mapImg.naturalWidth || 0; const naturalH = mapImg.naturalHeight || 0;
     if(!naturalW || !naturalH){ applyView(); return; }
     const wrap = mapWrap.getBoundingClientRect();
-    coverMinScale = Math.max(wrap.width / naturalW, wrap.height / naturalH) || 1;
+    coverMinScale = Math.max(wrap.width / naturalW, wrap.height / naturalH) || 1; // 여백 없이 꽉 채우기
     const stageW = naturalW * coverMinScale;
     const stageH = naturalH * coverMinScale;
     const tx = (wrap.width - stageW)/2;
@@ -273,17 +274,14 @@
     const wrap = mapWrap.getBoundingClientRect();
     const v = state.view;
     return { x: (x - wrap.left - v.tx) / v.scale, y: (y - wrap.top - v.ty) / v.scale };
-  };
   }
   function clamp(v,min,max){return Math.max(min, Math.min(max, v));}
 
   function clampViewToCover(){
-    // 이미지가 컨테이너 밖으로 빠져 여백이 보이지 않도록 tx/ty를 제한 (scale>=coverMinScale 가정)
     const naturalW = mapImg.naturalWidth || 0; const naturalH = mapImg.naturalHeight || 0; if(!naturalW||!naturalH) return;
     const wrap = mapWrap.getBoundingClientRect();
     const stageW = naturalW * state.view.scale;
     const stageH = naturalH * state.view.scale;
-    // 이미지가 컨테이너보다 작아지지 않도록(이미 coverMinScale에서 제한)
     const minTx = Math.min(0, wrap.width - stageW);
     const maxTx = 0;
     const minTy = Math.min(0, wrap.height - stageH);
@@ -311,11 +309,9 @@
   mapWrap.addEventListener('pointermove', e => {
     if(!pointers.has(e.pointerId)) return;
     const p = pointers.get(e.pointerId);
-    // store previous before updating
     p.prevX = p.x; p.prevY = p.y; p.x = e.clientX; p.y = e.clientY;
 
     if(pointers.size===2){
-      // pinch zoom using two tracked pointers' prev/curr distances
       const ids = [...pointers.keys()];
       const a = pointers.get(ids[0]);
       const b = pointers.get(ids[1]);
@@ -327,7 +323,6 @@
         zoomAround(factor, mid);
       }
     } else if(pointers.size===1){
-      // pan by pointer delta
       const dx = p.x - p.prevX; const dy = p.y - p.prevY;
       state.view.tx += dx; state.view.ty += dy; userAdjustedView = true; applyView(); saveViewDebounced();
     }
@@ -347,10 +342,10 @@
   });
   mapWrap.addEventListener('pointercancel', e => { pointers.delete(e.pointerId); });
 
-  // Mouse click support (separate from pointerup to 방지 중복)
+  // Mouse click support (터치는 pointerup에서 처리)
   mapWrap.addEventListener('click', e => {
-    if(e.pointerType === 'pen' || e.pointerType === 'touch') return; // 모바일 탭은 pointerup 쪽에서 처리
-    if(e.target.closest('.label')) return; // 라벨 클릭이면 무시(삭제는 라벨 자체 핸들러)
+    if(e.pointerType === 'pen' || e.pointerType === 'touch') return;
+    if(e.target.closest('.label')) return;
     addLabelAt(e.clientX, e.clientY);
   });
 
@@ -374,13 +369,20 @@
     if(ok){ state.labels = []; renderLabels(); refreshSelections(); }
   });
 
-  resetViewBtn.addEventListener('click', ()=>{ userAdjustedView=false; fitCover(); saveLocal(); }); saveLocal(); });
+  resetViewBtn.addEventListener('click', ()=>{ userAdjustedView=false; fitCover(); saveLocal(); });
 
   mapFile.addEventListener('change', e => {
-    const f = e.target.files?.[0]; if(!f) return;
-    const reader = new FileReader();
-    reader.onload = () => { setMap(reader.result); };
-    reader.readAsDataURL(f);
+    const f = e.target.files && e.target.files[0]; if(!f) return;
+    try{
+      if(currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
+      currentBlobUrl = URL.createObjectURL(f); // 모바일에서도 안정적
+      setMap(currentBlobUrl);
+    }catch(err){
+      const reader = new FileReader();
+      reader.onload  = () => setMap(reader.result);
+      reader.onerror = () => alert('파일을 읽는 중 오류가 발생했습니다.');
+      reader.readAsDataURL(f);
+    }
   });
 
   exportBtn.addEventListener('click', ()=>{
@@ -394,13 +396,14 @@
   });
 
   jsonFile.addEventListener('change', e => {
-    const f = e.target.files?.[0]; if(!f) return;
+    const f = e.target.files && e.target.files[0]; if(!f) return;
     const reader = new FileReader();
     reader.onload = () => {
       try{
         const obj = JSON.parse(reader.result);
         if(!obj || !('labels' in obj)) throw new Error('잘못된 JSON');
         state = Object.assign(state, obj);
+        if(state.mapDataUrl && state.mapDataUrl.startsWith('blob:')) state.mapDataUrl='';
         if(state.mapDataUrl) mapImg.src = state.mapDataUrl; else mapImg.removeAttribute('src');
         mapImg.onload = () => { userAdjustedView=false; fitCover(); };
         renderLabels();
@@ -417,7 +420,6 @@
   if(state.mapDataUrl){ mapImg.src = state.mapDataUrl; mapImg.onload = () => { userAdjustedView=false; fitCover(); }; }
   renderLabels();
   refreshSelections();
-  // 화면 회전/리사이즈 시: 사용자가 아직 조작하지 않았다면 커버 재계산
   window.addEventListener('resize', () => { if(!userAdjustedView) fitCover(); });
 })();
 </script>

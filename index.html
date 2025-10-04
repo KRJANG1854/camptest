@@ -42,7 +42,7 @@
     .labels{position:absolute;left:0;top:0;right:0;bottom:0}
 
     .label{
-      position:absolute;transform:translate(0,-100%); /* 왼쪽 아래가 기준점 */
+      position:absolute;transform:translate(-50%,-100%); /* 가운데-아래 앵커 */
       padding:.35em .5em;border-radius:10px;border:1px solid rgba(255,255,255,.15);
       background:rgba(17,20,28,.85);color:#fff;font-weight:800;white-space:nowrap;letter-spacing:.02em;
       box-shadow:0 4px 10px rgba(0,0,0,.35)
@@ -76,7 +76,7 @@
   </style>
 </head>
 <body>
-  <div class="version-badge">V1.4</div>
+  <div class="version-badge">V1.5</div>
 
   <div class="app">
     <div class="toolbar">
@@ -193,7 +193,7 @@
   }
 
   // ---------- Persistence ----------
-  const LS_KEY = 'map-labeler-v4'; // 버전 마이그레이션
+  const LS_KEY = 'map-labeler-v4'; // 유지
   let userAdjustedView = false;
   let coverMinScale = 1;
 
@@ -211,48 +211,6 @@
   }
   const debounce = (fn, ms=150) => { let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); } };
 
-  // ---------- Image processing (persist-friendly) ----------
-  async function fileToDataURL(file){
-    return new Promise((resolve, reject)=>{
-      const fr = new FileReader();
-      fr.onload = () => resolve(fr.result);
-      fr.onerror = reject;
-      fr.readAsDataURL(file);
-    });
-  }
-
-  async function downscaleDataURL(dataUrl, maxSide=2200, mime='image/jpeg', quality=0.9){
-    return new Promise((resolve)=>{
-      const img = new Image();
-      img.onload = () => {
-        let {width:w, height:h} = img;
-        const scale = Math.min(1, maxSide / Math.max(w, h));
-        const sw = Math.max(1, Math.round(w * scale));
-        const sh = Math.max(1, Math.round(h * scale));
-        const canvas = document.createElement('canvas');
-        canvas.width = sw; canvas.height = sh;
-        const ctx = canvas.getContext('2d');
-        ctx.imageSmoothingQuality = 'high';
-        ctx.drawImage(img, 0, 0, sw, sh);
-        try{
-          const out = canvas.toDataURL(mime, quality);
-          resolve(out);
-        }catch(e){
-          // 캔버스 보안 에러나 메모리 이슈 시 원본 반환
-          resolve(dataUrl);
-        }
-      };
-      img.onerror = () => resolve(dataUrl);
-      img.src = dataUrl;
-    });
-  }
-
-  async function loadAndPersistImage(file){
-    const dataUrl = await fileToDataURL(file);       // 원본 데이터 URL
-    const compact = await downscaleDataURL(dataUrl); // 용량 축소본
-    setMap(compact);
-  }
-
   // ---------- Map & Labels ----------
   function setMap(dataUrl){
     state.mapDataUrl = dataUrl;
@@ -269,7 +227,7 @@
       el.className = 'label ' + (lab.kind==='extended'?'extended':'normal');
       el.dataset.size = lab.size;
       el.textContent = lab.text;
-      // stage(원본 크기) 기준 % 좌표를 px로 계산 (labels는 stage와 동일 크기)
+      // stage 기준 퍼센트 → CSS % (stage와 labels는 동일 좌표계)
       el.style.left = lab.xPct + '%';
       el.style.top  = lab.yPct + '%';
       el.addEventListener('pointerdown', ev => ev.stopPropagation(), {passive:true});
@@ -295,18 +253,26 @@
     refreshSelections();
   }
 
-  // ✅ 좌표계: 보이는 stage(img 포함) 사각형 기준 → 퍼센트
+  // ✅ 좌표계: '원본 이미지 좌표'로 역산 (현재 뷰의 tx/ty/scale 반영)
   function clientToImagePercent(clientX, clientY){
-    const rect = stage.getBoundingClientRect(); // transform 반영된 실제 위치/크기
-    const x = clientX - rect.left;
-    const y = clientY - rect.top;
-    if(rect.width<=0 || rect.height<=0) return null;
-    const xPct = Math.max(0, Math.min(100, (x / rect.width) * 100));
-    const yPct = Math.max(0, Math.min(100, (y / rect.height) * 100));
-    return {xPct, yPct};
+    const wrapRect = mapWrap.getBoundingClientRect();
+    const { scale, tx, ty } = state.view;
+
+    // 스테이지(원본 좌표계)에서의 좌표
+    const xStage = (clientX - wrapRect.left - tx) / scale;
+    const yStage = (clientY - wrapRect.top  - ty) / scale;
+
+    // 원본 이미지 크기 (natural 크기가 가장 정확)
+    const naturalW = mapImg.naturalWidth || mapImg.width;
+    const naturalH = mapImg.naturalHeight || mapImg.height;
+    if(naturalW <= 0 || naturalH <= 0) return null;
+
+    const xPct = Math.max(0, Math.min(100, (xStage / naturalW) * 100));
+    const yPct = Math.max(0, Math.min(100, (yStage / naturalH) * 100));
+    return { xPct, yPct };
   }
 
-  // ---------- Pinch Zoom & Pan (2 fingers zoom / 1 finger pan) ----------
+  // ---------- Pinch Zoom & Pan ----------
   let pointers = new Map(); // id -> {x,y,prevX,prevY,downX,downY,downT,type}
 
   function applyView(){
@@ -411,7 +377,7 @@
     saveViewDebounced();
   }, {passive:false});
 
-  // ---------- Buttons / IO ----------
+  // ---------- JSON/IO ----------
   modeBtns.normal.addEventListener('click', ()=>{ state.mode='normal'; refreshSelections(); });
   modeBtns.extended.addEventListener('click', ()=>{ state.mode='extended'; refreshSelections(); });
 
@@ -428,15 +394,10 @@
 
   mapFile.addEventListener('change', async e => {
     const f = e.target.files && e.target.files[0]; if(!f) return;
-    updateStatus('이미지 처리 중…');
-    try{
-      await loadAndPersistImage(f); // 다운스케일 후 저장
-    }catch(err){
-      const r = new FileReader();
-      r.onload  = () => setMap(r.result);
-      r.onerror = () => { updateStatus('파일 읽기 실패'); alert('파일을 읽는 중 오류가 발생했습니다.'); };
-      r.readAsDataURL(f);
-    }
+    const r = new FileReader();
+    r.onload  = () => setMap(r.result);
+    r.onerror = () => { updateStatus('파일 읽기 실패'); alert('파일을 읽는 중 오류가 발생했습니다.'); };
+    r.readAsDataURL(f);
   });
 
   exportBtn.addEventListener('click', ()=>{

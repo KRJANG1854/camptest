@@ -42,7 +42,9 @@
     .labels{position:absolute;left:0;top:0;right:0;bottom:0}
 
     .label{
-      position:absolute;transform:translate(-50%,-100%); /* 가운데-아래 앵커 */
+      position:absolute;
+      /* ✅ 기준점을 '왼쪽 아래'로 고정 — 탭 지점이 라벨의 왼쪽 가장자리 */
+      transform:translate(0,-100%);
       padding:.35em .5em;border-radius:10px;border:1px solid rgba(255,255,255,.15);
       background:rgba(17,20,28,.85);color:#fff;font-weight:800;white-space:nowrap;letter-spacing:.02em;
       box-shadow:0 4px 10px rgba(0,0,0,.35)
@@ -76,7 +78,7 @@
   </style>
 </head>
 <body>
-  <div class="version-badge">V1.5</div>
+  <div class="version-badge">V1.6</div>
 
   <div class="app">
     <div class="toolbar">
@@ -193,7 +195,7 @@
   }
 
   // ---------- Persistence ----------
-  const LS_KEY = 'map-labeler-v4'; // 유지
+  const LS_KEY = 'map-labeler-v4';
   let userAdjustedView = false;
   let coverMinScale = 1;
 
@@ -205,7 +207,6 @@
         const obj = JSON.parse(raw);
         if(obj && typeof obj==='object') state = Object.assign(state, obj);
       }
-      // blob: URL은 세션 바뀌면 무효 → 제거
       if(state.mapDataUrl && state.mapDataUrl.startsWith('blob:')) state.mapDataUrl='';
     }catch(e){}
   }
@@ -227,7 +228,6 @@
       el.className = 'label ' + (lab.kind==='extended'?'extended':'normal');
       el.dataset.size = lab.size;
       el.textContent = lab.text;
-      // stage 기준 퍼센트 → CSS % (stage와 labels는 동일 좌표계)
       el.style.left = lab.xPct + '%';
       el.style.top  = lab.yPct + '%';
       el.addEventListener('pointerdown', ev => ev.stopPropagation(), {passive:true});
@@ -253,16 +253,14 @@
     refreshSelections();
   }
 
-  // ✅ 좌표계: '원본 이미지 좌표'로 역산 (현재 뷰의 tx/ty/scale 반영)
+  // ✅ 정확 좌표계: 현재 뷰(tx/ty/scale) 역산하여 '원본 이미지' 퍼센트로 저장
   function clientToImagePercent(clientX, clientY){
     const wrapRect = mapWrap.getBoundingClientRect();
     const { scale, tx, ty } = state.view;
 
-    // 스테이지(원본 좌표계)에서의 좌표
     const xStage = (clientX - wrapRect.left - tx) / scale;
     const yStage = (clientY - wrapRect.top  - ty) / scale;
 
-    // 원본 이미지 크기 (natural 크기가 가장 정확)
     const naturalW = mapImg.naturalWidth || mapImg.width;
     const naturalH = mapImg.naturalHeight || mapImg.height;
     if(naturalW <= 0 || naturalH <= 0) return null;
@@ -273,7 +271,7 @@
   }
 
   // ---------- Pinch Zoom & Pan ----------
-  let pointers = new Map(); // id -> {x,y,prevX,prevY,downX,downY,downT,type}
+  let pointers = new Map();
 
   function applyView(){
     clampViewToCover();
@@ -366,10 +364,7 @@
   });
   mapWrap.addEventListener('pointercancel', e => { pointers.delete(e.pointerId); });
 
-  // 더블탭 줌(브라우저 기본) 차단
   mapWrap.addEventListener('dblclick', e => e.preventDefault(), {passive:false});
-
-  // 휠 줌(데스크탑)
   mapWrap.addEventListener('wheel', e => {
     e.preventDefault();
     const factor = Math.pow(1.0015, -e.deltaY);

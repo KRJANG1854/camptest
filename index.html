@@ -2,16 +2,22 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <!-- iOS 페이지 줌 방지: 내부 핀치만 사용하도록 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
   <title>모바일 지도로 요일 라벨러</title>
   <style>
     :root{
       --bg:#0b0b0f; --panel:#14151a; --muted:#7f8596; --text:#e9ecf1; --accent:#5aa2ff; --danger:#ff6b6b;
       --btn:#1c1f27; --btn2:#202431; --border:#2a3040;
-      --map-h: 68dvh; /* iOS용 동적 뷰포트 단위 우선 */
+      --map-h: 68dvh;
     }
-    html,body{height:100%;}
-    body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Pretendard,Apple SD Gothic Neo,Malgun Gothic,sans-serif;-webkit-tap-highlight-color: transparent;}
+    html,body{height:100%; overscroll-behavior:none;}
+    body{
+      margin:0;background:var(--bg);color:var(--text);
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,Pretendard,Apple SD Gothic Neo,Malgun Gothic,sans-serif;
+      -webkit-tap-highlight-color: transparent;
+      -webkit-text-size-adjust: 100%;
+    }
     .app{display:flex;flex-direction:column;gap:10px;max-width:1000px;margin:0 auto;padding:10px;}
     .toolbar{display:grid;grid-template-columns:1fr;gap:10px;}
     .panel{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:12px;}
@@ -26,13 +32,14 @@
     .seg button{all:unset;padding:10px 12px;cursor:pointer;color:var(--text);font-weight:700}
     .seg button[aria-pressed="true"]{background:var(--accent);color:black}
 
-    .map-wrap{position:relative;background:#0a0b0f;border:1px solid var(--border);border-radius:14px;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none;
-      height:var(--map-h);
-      /* 구형 브라우저 폴백 */
-      height:68vh;
+    .map-wrap{
+      position:relative;background:#0a0b0f;border:1px solid var(--border);border-radius:14px;overflow:hidden;
+      touch-action:none; -webkit-user-select:none; user-select:none;
+      height:var(--map-h); height:68vh; /* 폴백 */
     }
     .map-stage{position:relative;transform-origin:0 0}
-    .map-img{display:block;max-width:none;height:auto;pointer-events:none;user-select:none} /* max-width:none로 stage의 자연 크기 유지 */
+    /* stage의 자연 크기를 유지하도록 max-width 제거 */
+    .map-img{display:block;max-width:none;height:auto;pointer-events:none;user-select:none; touch-action:none}
     .labels{position:absolute;left:0;top:0;right:0;bottom:0}
 
     .label{position:absolute;transform:translate(-50%,-100%);padding:.35em .5em;border-radius:10px;border:1px solid rgba(255,255,255,.15);background:rgba(17,20,28,.85);color:#fff;font-weight:800;white-space:nowrap;letter-spacing:.02em;box-shadow:0 4px 10px rgba(0,0,0,.35)}
@@ -65,14 +72,13 @@
   </style>
 </head>
 <body>
-  <div class="version-badge">V1.2</div>
+  <div class="version-badge">V1.3</div>
 
   <div class="app">
     <div class="toolbar">
       <div class="panel grid">
         <div class="row">
           <label class="file-label btn" for="mapFile">지도 업로드/교체</label>
-          <!-- iPhone 갤러리용: capture 제거 -->
           <input id="mapFile" type="file" accept="image/*" />
           <button class="btn" id="resetView" title="지도를 화면에 맞춰 재정렬">보기 리셋</button>
           <div class="spacer"></div>
@@ -145,7 +151,7 @@
     view: { scale: 1, tx: 0, ty: 0 }
   };
 
-  // ---------- UI builders ----------
+  // ---------- UI ----------
   function buildDaySeg(){
     daySeg.innerHTML = '';
     for(const d of DAYS){
@@ -176,38 +182,31 @@
     updateStatus();
     saveLocal();
   }
-  function dayDisplay(){
-    return state.mode==='extended' ? ('6'+state.day) : state.day; // 예: 6월, 6화...
-  }
+  function dayDisplay(){ return state.mode==='extended' ? ('6'+state.day) : state.day; }
   function updateStatus(msg){
     const base = `모드: ${state.mode==='normal'?'일반':'연장'} · 요일: ${dayDisplay()} · 크기: ${state.size}% · 라벨 ${state.labels.length}개`;
     status.textContent = msg ? `${base} · ${msg}` : base;
   }
 
   // ---------- Persistence ----------
-  const LS_KEY = 'map-labeler-v2';
-  let userAdjustedView = false; // 사용자가 팬/줌 했는지 여부
-  let coverMinScale = 1;        // 컨테이너 꽉 채우는 최소 배율(커버)
+  const LS_KEY = 'map-labeler-v3';
+  let userAdjustedView = false;
+  let coverMinScale = 1;
 
-  function saveLocal(){
-    try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); }catch(e){ console.warn('save failed', e); }
-  }
+  function saveLocal(){ try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); }catch(e){} }
   function loadLocal(){
     try{
       const raw = localStorage.getItem(LS_KEY);
-      if(!raw) return;
-      const obj = JSON.parse(raw);
-      if(obj && typeof obj === 'object'){
-        state = Object.assign(state, obj);
+      if(raw){
+        const obj = JSON.parse(raw);
+        if(obj && typeof obj==='object') state = Object.assign(state, obj);
       }
-      if(state.mapDataUrl && state.mapDataUrl.startsWith('blob:')){
-        state.mapDataUrl = ''; // 세션 넘어간 blob은 무효
-      }
-    }catch(e){ console.warn('load failed', e); }
+      if(state.mapDataUrl && state.mapDataUrl.startsWith('blob:')) state.mapDataUrl='';
+    }catch(e){}
   }
-  const debounce = (fn, ms=150) => { let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args), ms); } };
+  const debounce = (fn, ms=150) => { let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); } };
 
-  // ---------- Map & Labels rendering ----------
+  // ---------- Map & Labels ----------
   function setMap(dataUrl){
     state.mapDataUrl = dataUrl;
     mapImg.src = dataUrl;
@@ -248,23 +247,18 @@
     refreshSelections();
   }
 
+  // ✅ 좌표계: 화면에 보이는 이미지 rect 기준 → 퍼센트
   function clientToImagePercent(clientX, clientY){
-    // 화면 좌표 -> (스테이지 기준) -> 원본 이미지 퍼센트
-    const wrapRect = mapWrap.getBoundingClientRect();
-    const {scale, tx, ty} = state.view;
-    const xOnStage = (clientX - wrapRect.left - tx);
-    const yOnStage = (clientY - wrapRect.top - ty);
-    const xImg = xOnStage / scale;
-    const yImg = yOnStage / scale;
-    const naturalW = mapImg.naturalWidth || mapImg.width;
-    const naturalH = mapImg.naturalHeight || mapImg.height;
-    if(naturalW<=0 || naturalH<=0) return null;
-    const xPct = Math.max(0, Math.min(100, (xImg / naturalW) * 100));
-    const yPct = Math.max(0, Math.min(100, (yImg / naturalH) * 100));
+    const rect = mapImg.getBoundingClientRect(); // 변환/스케일 반영된 실제 위치/크기
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+    if(rect.width<=0 || rect.height<=0) return null;
+    const xPct = Math.max(0, Math.min(100, (x / rect.width) * 100));
+    const yPct = Math.max(0, Math.min(100, (y / rect.height) * 100));
     return {xPct, yPct};
   }
 
-  // ---------- Pinch Zoom & Pan ----------
+  // ---------- Pinch Zoom & Pan (2-fingers only for zoom) ----------
   let pointers = new Map(); // id -> {x,y,prevX,prevY,downX,downY,downT,type}
 
   function applyView(){
@@ -276,7 +270,7 @@
     const naturalW = mapImg.naturalWidth || 0; const naturalH = mapImg.naturalHeight || 0;
     if(!naturalW || !naturalH){ applyView(); return; }
     const wrap = mapWrap.getBoundingClientRect();
-    coverMinScale = Math.max(wrap.width / naturalW, wrap.height / naturalH) || 1; // 여백 없이 꽉 채우기
+    coverMinScale = Math.max(wrap.width / naturalW, wrap.height / naturalH) || 1;
     const stageW = naturalW * coverMinScale;
     const stageH = naturalH * coverMinScale;
     const tx = (wrap.width - stageW)/2;
@@ -309,7 +303,7 @@
   function zoomAround(factor, center){
     const v = state.view;
     const pre = screenToStage(center.x, center.y);
-    v.scale = clamp(v.scale * factor, coverMinScale, 8); // 최소 배율은 cover
+    v.scale = clamp(v.scale * factor, coverMinScale, 8);
     const post = screenToStage(center.x, center.y);
     v.tx += (post.x - pre.x) * v.scale;
     v.ty += (post.y - pre.y) * v.scale;
@@ -328,6 +322,7 @@
     p.prevX = p.x; p.prevY = p.y; p.x = e.clientX; p.y = e.clientY;
 
     if(pointers.size===2){
+      // 두 손가락 핀치 줌만 허용
       const ids = [...pointers.keys()];
       const a = pointers.get(ids[0]);
       const b = pointers.get(ids[1]);
@@ -339,6 +334,7 @@
         zoomAround(factor, mid);
       }
     } else if(pointers.size===1){
+      // 한 손가락은 팬만
       const dx = p.x - p.prevX; const dy = p.y - p.prevY;
       state.view.tx += dx; state.view.ty += dy; userAdjustedView = true; applyView(); saveViewDebounced();
     }
@@ -349,17 +345,19 @@
     if(p){
       const dt = performance.now() - p.downT;
       const move = Math.hypot(e.clientX - p.downX, e.clientY - p.downY);
-      const isTap = dt < 250 && move < 6;
+      const isTap = dt < 250 && move < 6 && pointers.size===1; // 다른 손가락 없을 때만 탭
       if(isTap && e.isPrimary){
-        addLabelAt(e.clientX, e.clientY); // 마우스/터치 공통: pointerup에서만 추가
+        addLabelAt(e.clientX, e.clientY);
       }
     }
     pointers.delete(e.pointerId); saveLocal();
   });
   mapWrap.addEventListener('pointercancel', e => { pointers.delete(e.pointerId); });
 
-  // 클릭 추가는 제거(중복/좌표 오차 원인). 마우스도 pointerup에서 탭 판정으로 처리.
+  // 더블탭 줌(브라우저 기본) 차단
+  mapWrap.addEventListener('dblclick', e => e.preventDefault(), {passive:false});
 
+  // 휠 줌(데스크탑)만 허용
   mapWrap.addEventListener('wheel', e => {
     e.preventDefault();
     const factor = Math.pow(1.0015, -e.deltaY);
@@ -367,7 +365,7 @@
     saveViewDebounced();
   }, {passive:false});
 
-  // ---------- Event wiring ----------
+  // ---------- Buttons / IO ----------
   modeBtns.normal.addEventListener('click', ()=>{ state.mode='normal'; refreshSelections(); });
   modeBtns.extended.addEventListener('click', ()=>{ state.mode='extended'; refreshSelections(); });
 
@@ -382,7 +380,6 @@
 
   resetViewBtn.addEventListener('click', ()=>{ userAdjustedView=false; fitCover(); saveLocal(); });
 
-  // 업로드: iPhone 갤러리 선택
   mapFile.addEventListener('change', e => {
     const f = e.target.files && e.target.files[0]; if(!f) return;
     const reader = new FileReader();
@@ -419,15 +416,19 @@
     reader.readAsText(f);
   });
 
-  // ---------- viewport height 보정 (iOS 여백 방지) ----------
+  // ---------- iOS 높이 보정 ----------
   function setMapHeight(){
     const vh = (window.visualViewport ? window.visualViewport.height : window.innerHeight) * 0.68;
     mapWrap.style.height = Math.max(240, Math.round(vh)) + 'px';
-    if(!mapImg.src) return;
-    if(!userAdjustedView) fitCover();
+    if(mapImg.src && !userAdjustedView) fitCover();
   }
   window.addEventListener('resize', setMapHeight);
   window.addEventListener('orientationchange', setMapHeight);
+
+  // ---------- iOS 사파리 페이지 핀치 줌 방지 (우리 내부만 사용) ----------
+  ['gesturestart','gesturechange','gestureend'].forEach(evt=>{
+    document.addEventListener(evt, e => e.preventDefault(), {passive:false});
+  });
 
   // ---------- Init ----------
   buildDaySeg();

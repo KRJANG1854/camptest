@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8" />
-  <!-- iOS 페이지 줌 방지: 내부 핀치만 사용하도록 -->
+  <!-- iOS 페이지 줌 방지: 내부 핀치만 사용 -->
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
   <title>모바일 지도로 요일 라벨러</title>
   <style>
@@ -38,11 +38,15 @@
       height:var(--map-h); height:68vh; /* 폴백 */
     }
     .map-stage{position:relative;transform-origin:0 0}
-    /* stage의 자연 크기를 유지하도록 max-width 제거 */
     .map-img{display:block;max-width:none;height:auto;pointer-events:none;user-select:none; touch-action:none}
     .labels{position:absolute;left:0;top:0;right:0;bottom:0}
 
-    .label{position:absolute;transform:translate(-50%,-100%);padding:.35em .5em;border-radius:10px;border:1px solid rgba(255,255,255,.15);background:rgba(17,20,28,.85);color:#fff;font-weight:800;white-space:nowrap;letter-spacing:.02em;box-shadow:0 4px 10px rgba(0,0,0,.35)}
+    .label{
+      position:absolute;transform:translate(0,-100%); /* 왼쪽 아래가 기준점 */
+      padding:.35em .5em;border-radius:10px;border:1px solid rgba(255,255,255,.15);
+      background:rgba(17,20,28,.85);color:#fff;font-weight:800;white-space:nowrap;letter-spacing:.02em;
+      box-shadow:0 4px 10px rgba(0,0,0,.35)
+    }
     .label.normal{background:rgba(30,143,255,.9)}
     .label.extended{background:rgba(255,166,0,.95)}
     .label[data-size="25"]{font-size:10px}
@@ -72,7 +76,7 @@
   </style>
 </head>
 <body>
-  <div class="version-badge">V1.3</div>
+  <div class="version-badge">V1.4</div>
 
   <div class="app">
     <div class="toolbar">
@@ -189,7 +193,7 @@
   }
 
   // ---------- Persistence ----------
-  const LS_KEY = 'map-labeler-v3';
+  const LS_KEY = 'map-labeler-v4'; // 버전 마이그레이션
   let userAdjustedView = false;
   let coverMinScale = 1;
 
@@ -201,10 +205,53 @@
         const obj = JSON.parse(raw);
         if(obj && typeof obj==='object') state = Object.assign(state, obj);
       }
+      // blob: URL은 세션 바뀌면 무효 → 제거
       if(state.mapDataUrl && state.mapDataUrl.startsWith('blob:')) state.mapDataUrl='';
     }catch(e){}
   }
   const debounce = (fn, ms=150) => { let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); } };
+
+  // ---------- Image processing (persist-friendly) ----------
+  async function fileToDataURL(file){
+    return new Promise((resolve, reject)=>{
+      const fr = new FileReader();
+      fr.onload = () => resolve(fr.result);
+      fr.onerror = reject;
+      fr.readAsDataURL(file);
+    });
+  }
+
+  async function downscaleDataURL(dataUrl, maxSide=2200, mime='image/jpeg', quality=0.9){
+    return new Promise((resolve)=>{
+      const img = new Image();
+      img.onload = () => {
+        let {width:w, height:h} = img;
+        const scale = Math.min(1, maxSide / Math.max(w, h));
+        const sw = Math.max(1, Math.round(w * scale));
+        const sh = Math.max(1, Math.round(h * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = sw; canvas.height = sh;
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, sw, sh);
+        try{
+          const out = canvas.toDataURL(mime, quality);
+          resolve(out);
+        }catch(e){
+          // 캔버스 보안 에러나 메모리 이슈 시 원본 반환
+          resolve(dataUrl);
+        }
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    });
+  }
+
+  async function loadAndPersistImage(file){
+    const dataUrl = await fileToDataURL(file);       // 원본 데이터 URL
+    const compact = await downscaleDataURL(dataUrl); // 용량 축소본
+    setMap(compact);
+  }
 
   // ---------- Map & Labels ----------
   function setMap(dataUrl){
@@ -222,8 +269,9 @@
       el.className = 'label ' + (lab.kind==='extended'?'extended':'normal');
       el.dataset.size = lab.size;
       el.textContent = lab.text;
+      // stage(원본 크기) 기준 % 좌표를 px로 계산 (labels는 stage와 동일 크기)
       el.style.left = lab.xPct + '%';
-      el.style.top = lab.yPct + '%';
+      el.style.top  = lab.yPct + '%';
       el.addEventListener('pointerdown', ev => ev.stopPropagation(), {passive:true});
       el.addEventListener('click', (ev) => {
         ev.stopPropagation();
@@ -247,9 +295,9 @@
     refreshSelections();
   }
 
-  // ✅ 좌표계: 화면에 보이는 이미지 rect 기준 → 퍼센트
+  // ✅ 좌표계: 보이는 stage(img 포함) 사각형 기준 → 퍼센트
   function clientToImagePercent(clientX, clientY){
-    const rect = mapImg.getBoundingClientRect(); // 변환/스케일 반영된 실제 위치/크기
+    const rect = stage.getBoundingClientRect(); // transform 반영된 실제 위치/크기
     const x = clientX - rect.left;
     const y = clientY - rect.top;
     if(rect.width<=0 || rect.height<=0) return null;
@@ -258,7 +306,7 @@
     return {xPct, yPct};
   }
 
-  // ---------- Pinch Zoom & Pan (2-fingers only for zoom) ----------
+  // ---------- Pinch Zoom & Pan (2 fingers zoom / 1 finger pan) ----------
   let pointers = new Map(); // id -> {x,y,prevX,prevY,downX,downY,downT,type}
 
   function applyView(){
@@ -322,7 +370,6 @@
     p.prevX = p.x; p.prevY = p.y; p.x = e.clientX; p.y = e.clientY;
 
     if(pointers.size===2){
-      // 두 손가락 핀치 줌만 허용
       const ids = [...pointers.keys()];
       const a = pointers.get(ids[0]);
       const b = pointers.get(ids[1]);
@@ -334,7 +381,6 @@
         zoomAround(factor, mid);
       }
     } else if(pointers.size===1){
-      // 한 손가락은 팬만
       const dx = p.x - p.prevX; const dy = p.y - p.prevY;
       state.view.tx += dx; state.view.ty += dy; userAdjustedView = true; applyView(); saveViewDebounced();
     }
@@ -345,7 +391,7 @@
     if(p){
       const dt = performance.now() - p.downT;
       const move = Math.hypot(e.clientX - p.downX, e.clientY - p.downY);
-      const isTap = dt < 250 && move < 6 && pointers.size===1; // 다른 손가락 없을 때만 탭
+      const isTap = dt < 250 && move < 6 && pointers.size===1;
       if(isTap && e.isPrimary){
         addLabelAt(e.clientX, e.clientY);
       }
@@ -357,7 +403,7 @@
   // 더블탭 줌(브라우저 기본) 차단
   mapWrap.addEventListener('dblclick', e => e.preventDefault(), {passive:false});
 
-  // 휠 줌(데스크탑)만 허용
+  // 휠 줌(데스크탑)
   mapWrap.addEventListener('wheel', e => {
     e.preventDefault();
     const factor = Math.pow(1.0015, -e.deltaY);
@@ -380,12 +426,17 @@
 
   resetViewBtn.addEventListener('click', ()=>{ userAdjustedView=false; fitCover(); saveLocal(); });
 
-  mapFile.addEventListener('change', e => {
+  mapFile.addEventListener('change', async e => {
     const f = e.target.files && e.target.files[0]; if(!f) return;
-    const reader = new FileReader();
-    reader.onload  = () => setMap(reader.result);
-    reader.onerror = () => { updateStatus('파일 읽기 실패'); alert('파일을 읽는 중 오류가 발생했습니다.'); };
-    reader.readAsDataURL(f);
+    updateStatus('이미지 처리 중…');
+    try{
+      await loadAndPersistImage(f); // 다운스케일 후 저장
+    }catch(err){
+      const r = new FileReader();
+      r.onload  = () => setMap(r.result);
+      r.onerror = () => { updateStatus('파일 읽기 실패'); alert('파일을 읽는 중 오류가 발생했습니다.'); };
+      r.readAsDataURL(f);
+    }
   });
 
   exportBtn.addEventListener('click', ()=>{
@@ -425,7 +476,7 @@
   window.addEventListener('resize', setMapHeight);
   window.addEventListener('orientationchange', setMapHeight);
 
-  // ---------- iOS 사파리 페이지 핀치 줌 방지 (우리 내부만 사용) ----------
+  // ---------- iOS 사파리 페이지 핀치 줌 방지 ----------
   ['gesturestart','gesturechange','gestureend'].forEach(evt=>{
     document.addEventListener(evt, e => e.preventDefault(), {passive:false});
   });

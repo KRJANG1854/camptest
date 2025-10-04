@@ -26,7 +26,6 @@
     .btn[data-active="true"]{outline:2px solid var(--accent);}
     .btn:active{scale:.98}
     .btn.danger{background:#2a1515;border-color:#3a1c1c;color:#ffdede}
-    .btn.ghost{background:transparent}
     .seg{display:inline-flex;background:var(--btn2);border:1px solid var(--border);border-radius:12px;overflow:hidden}
     .seg button{all:unset;padding:10px 12px;cursor:pointer;color:var(--text);font-weight:700}
     .seg button[aria-pressed="true"]{background:var(--accent);color:black}
@@ -34,15 +33,15 @@
     .map-wrap{
       position:relative;background:#0a0b0f;border:1px solid var(--border);border-radius:14px;overflow:hidden;
       touch-action:none; -webkit-user-select:none; user-select:none;
-      height:var(--map-h); height:68vh; /* 폴백 */
+      height:var(--map-h); height:68vh;
     }
     .map-stage{position:relative;transform-origin:0 0}
     .map-img{display:block;max-width:none;height:auto;pointer-events:none;user-select:none; touch-action:none}
     .labels{position:absolute;left:0;top:0;right:0;bottom:0}
 
+    /* ✅ 라벨 기준점을 '왼쪽·아래'로 고정 */
     .label{
-      position:absolute;
-      transform:translate(-50%,-100%); /* 가운데-아래 앵커 */
+      position:absolute;transform:translate(0,-100%);
       padding:.35em .5em;border-radius:10px;border:1px solid rgba(255,255,255,.15);
       background:rgba(17,20,28,.85);color:#fff;font-weight:800;white-space:nowrap;letter-spacing:.02em;
       box-shadow:0 4px 10px rgba(0,0,0,.35)
@@ -75,7 +74,7 @@
   </style>
 </head>
 <body>
-  <div class="version-badge">V1.7</div>
+  <div class="version-badge">V1.8</div>
 
   <div class="app">
     <div class="toolbar">
@@ -145,8 +144,8 @@
   const SIZES = [25,50,70,100];
 
   let state = {
-    mapDataUrl: '',
-    labels: [], // {xPct,yPct,text,size,kind:'normal'|'extended'}
+    mapDataUrl: '',         // (작으면 dataURL, 크면 '')
+    labels: [],             // {xPct,yPct,text,size,kind}
     mode: 'normal',
     day: '월',
     size: 100,
@@ -154,7 +153,36 @@
     view: { scale: 1, tx: 0, ty: 0 }
   };
 
-  /* ---------- UI ---------- */
+  /* ---------------- IndexedDB (이미지 저장) ---------------- */
+  const DB_NAME = 'mapdb', STORE = 'kv';
+  function idbOpen(){
+    return new Promise((resolve, reject)=>{
+      const r = indexedDB.open(DB_NAME, 1);
+      r.onupgradeneeded = () => { r.result.createObjectStore(STORE, { keyPath: 'k' }); };
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+    });
+  }
+  async function idbSet(key, value){
+    const db = await idbOpen();
+    return new Promise((resolve, reject)=>{
+      const tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).put({k:key, v:value});
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+  async function idbGet(key){
+    const db = await idbOpen();
+    return new Promise((resolve, reject)=>{
+      const tx = db.transaction(STORE, 'readonly');
+      const req = tx.objectStore(STORE).get(key);
+      req.onsuccess = () => resolve(req.result?.v ?? null);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  /* ---------------- UI ---------------- */
   function buildDaySeg(){
     daySeg.innerHTML = '';
     for(const d of DAYS){
@@ -191,8 +219,8 @@
     status.textContent = msg ? `${base} · ${msg}` : base;
   }
 
-  /* ---------- Persistence ---------- */
-  const LS_KEY = 'map-labeler-v5'; // 새 버전 키
+  /* ---------------- Persistence (메타) ---------------- */
+  const LS_KEY = 'map-labeler-v6';
   let userAdjustedView = false;
   let coverMinScale = 1;
 
@@ -209,7 +237,7 @@
   }
   const debounce = (fn, ms=150) => { let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); } };
 
-  /* ---------- Image processing for persistence ---------- */
+  /* ---------------- Image processing ---------------- */
   async function fileToDataURL(file){
     return new Promise((resolve, reject)=>{
       const fr = new FileReader();
@@ -218,7 +246,7 @@
       fr.readAsDataURL(file);
     });
   }
-  async function downscaleDataURL(dataUrl, maxSide=2200, mime='image/jpeg', quality=0.9){
+  async function downscaleDataURL(dataUrl, maxSide=1600, mime='image/jpeg', quality=0.85){
     return new Promise((resolve)=>{
       const img = new Image();
       img.onload = () => {
@@ -239,12 +267,24 @@
   async function loadAndPersistImage(file){
     const dataUrl = await fileToDataURL(file);
     const compact = await downscaleDataURL(dataUrl);
+    // 1) 화면 적용
     setMap(compact);
+    // 2) 저장 (IndexedDB + small 백업)
+    try { await idbSet('img', compact); } catch(e){}
+    try {
+      if (compact.length < 3_500_000) { // 약 3.5MB 이하만 LS 백업
+        state.mapDataUrl = compact;
+        saveLocal();
+      } else {
+        state.mapDataUrl = ''; // 크면 IDB만
+        saveLocal();
+      }
+    } catch(e){}
   }
 
-  /* ---------- Map & Labels ---------- */
+  /* ---------------- Map & Labels ---------------- */
   function setMap(dataUrl){
-    state.mapDataUrl = dataUrl;
+    state.mapDataUrl = dataUrl || state.mapDataUrl;
     mapImg.src = dataUrl;
     mapImg.onerror = () => { updateStatus('이미지 로딩 실패'); alert('이미지 로딩에 실패했습니다. 다른 파일로 시도해 주세요.'); };
     mapImg.onload  = () => { userAdjustedView=false; fitCover(); updateStatus('이미지 로딩 완료'); };
@@ -277,34 +317,31 @@
     if(state.deleteMode!=='none') return;
     const pt = clientToImagePercent(clientX, clientY);
     if(!pt) return;
-    const text = dayDisplay();
+    const text = state.mode==='extended' ? ('6'+state.day) : state.day;
     state.labels.push({ xPct: pt.xPct, yPct: pt.yPct, text, size: state.size, kind: state.mode });
     renderLabels();
     refreshSelections();
   }
 
-  /* ✅ 좌표계 핵심 수정:
-     - stage의 실제 화면 사각형(stage.getBoundingClientRect())을 구함
-     - 화면좌표 → (사각형 기준) → 현재 scale 역적용 → 원본 이미지 좌표
-     - 그 좌표를 naturalWidth/Height로 나눠 퍼센트 저장
-     이렇게 해야 중앙/오른쪽에서도 오차가 0이 됨.
-  */
+  // ✅ 정확 좌표계: mapWrap 기준 → (tx,ty,scale) 역산 → '원본 이미지' 퍼센트
   function clientToImagePercent(clientX, clientY){
-    const rect = stage.getBoundingClientRect();       // 변환(translate+scale) 반영된 stage의 화면 사각형
-    const v = state.view;
-    const xStage = (clientX - rect.left) / v.scale;   // 원본 좌표계 X
-    const yStage = (clientY - rect.top)  / v.scale;   // 원본 좌표계 Y
+    const wrap = mapWrap.getBoundingClientRect();
+    const { scale, tx, ty } = state.view;
 
-    const naturalW = mapImg.naturalWidth || mapImg.width;
-    const naturalH = mapImg.naturalHeight || mapImg.height;
-    if(naturalW <= 0 || naturalH <= 0) return null;
+    // 화면좌표 → 스테이지 원본좌표
+    const xStage = (clientX - wrap.left - tx) / scale;
+    const yStage = (clientY - wrap.top  - ty) / scale;
 
-    const xPct = Math.max(0, Math.min(100, (xStage / naturalW) * 100));
-    const yPct = Math.max(0, Math.min(100, (yStage / naturalH) * 100));
+    const w = mapImg.naturalWidth  || mapImg.width;
+    const h = mapImg.naturalHeight || mapImg.height;
+    if(w<=0 || h<=0) return null;
+
+    const xPct = Math.max(0, Math.min(100, +(xStage / w * 100).toFixed(4)));
+    const yPct = Math.max(0, Math.min(100, +(yStage / h * 100).toFixed(4)));
     return { xPct, yPct };
   }
 
-  /* ---------- Pinch Zoom & Pan (2 fingers zoom / 1 finger pan) ---------- */
+  /* ---------------- Pinch Zoom & Pan ---------------- */
   let pointers = new Map();
 
   function applyView(){
@@ -313,13 +350,14 @@
     stage.style.transform = `translate(${v.tx}px, ${v.ty}px) scale(${v.scale})`;
   }
   function fitCover(){
-    const naturalW = mapImg.naturalWidth || 0; const naturalH = mapImg.naturalHeight || 0;
-    if(!naturalW || !naturalH){ applyView(); return; }
+    const w = mapImg.naturalWidth  || 0;
+    const h = mapImg.naturalHeight || 0;
+    if(!w || !h){ applyView(); return; }
     const wrap = mapWrap.getBoundingClientRect();
-    coverMinScale = Math.max(wrap.width / naturalW, wrap.height / naturalH) || 1;
-    const stageW = naturalW * coverMinScale;
-    const stageH = naturalH * coverMinScale;
-    const tx = (wrap.width - stageW)/2;
+    coverMinScale = Math.max(wrap.width / w, wrap.height / h) || 1;
+    const stageW = w * coverMinScale;
+    const stageH = h * coverMinScale;
+    const tx = (wrap.width  - stageW)/2;
     const ty = (wrap.height - stageH)/2;
     state.view = { scale: coverMinScale, tx, ty };
     applyView();
@@ -334,10 +372,11 @@
   function clamp(v,min,max){return Math.max(min, Math.min(max, v));}
 
   function clampViewToCover(){
-    const naturalW = mapImg.naturalWidth || 0; const naturalH = mapImg.naturalHeight || 0; if(!naturalW||!naturalH) return;
+    const w = mapImg.naturalWidth  || 0;
+    const h = mapImg.naturalHeight || 0; if(!w||!h) return;
     const wrap = mapWrap.getBoundingClientRect();
-    const stageW = naturalW * state.view.scale;
-    const stageH = naturalH * state.view.scale;
+    const stageW = w * state.view.scale;
+    const stageH = h * state.view.scale;
     const minTx = Math.min(0, wrap.width - stageW);
     const maxTx = 0;
     const minTy = Math.min(0, wrap.height - stageH);
@@ -406,7 +445,7 @@
     saveViewDebounced();
   }, {passive:false});
 
-  /* ---------- JSON/IO ---------- */
+  /* ---------------- Buttons / IO ---------------- */
   modeBtns.normal.addEventListener('click', ()=>{ state.mode='normal'; refreshSelections(); });
   modeBtns.extended.addEventListener('click', ()=>{ state.mode='extended'; refreshSelections(); });
 
@@ -460,7 +499,7 @@
     reader.readAsText(f);
   });
 
-  /* ---------- iOS 높이 보정 ---------- */
+  /* ---------------- iOS 높이 보정 ---------------- */
   function setMapHeight(){
     const vh = (window.visualViewport ? window.visualViewport.height : window.innerHeight) * 0.68;
     mapWrap.style.height = Math.max(240, Math.round(vh)) + 'px';
@@ -469,20 +508,26 @@
   window.addEventListener('resize', setMapHeight);
   window.addEventListener('orientationchange', setMapHeight);
 
-  /* ---------- iOS 기본 핀치 줌 방지 ---------- */
   ['gesturestart','gesturechange','gestureend'].forEach(evt=>{
     document.addEventListener(evt, e => e.preventDefault(), {passive:false});
   });
 
-  /* ---------- Init ---------- */
+  /* ---------------- Init ---------------- */
   buildDaySeg();
   buildSizeSeg();
   loadLocal();
   setMapHeight();
-  if(state.mapDataUrl){
-    mapImg.src = state.mapDataUrl;
-    mapImg.onload = () => { userAdjustedView=false; fitCover(); updateStatus('이미지 복구 완료'); };
-  }
+
+  // 이미지 복구: 1) localStorage 데이터URL 2) IndexedDB 순서로 시도
+  (async () => {
+    if(state.mapDataUrl){
+      setMap(state.mapDataUrl);
+    } else {
+      const fromIDB = await idbGet('img');
+      if(fromIDB){ setMap(fromIDB); }
+    }
+  })();
+
   renderLabels();
   refreshSelections();
 })();

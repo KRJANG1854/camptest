@@ -2,7 +2,6 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8" />
-  <!-- iOS 페이지 줌 방지: 내부 핀치만 사용 -->
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
   <title>모바일 지도로 요일 라벨러</title>
   <style>
@@ -43,8 +42,7 @@
 
     .label{
       position:absolute;
-      /* ✅ 기준점을 '왼쪽 아래'로 고정 — 탭 지점이 라벨의 왼쪽 가장자리 */
-      transform:translate(0,-100%);
+      transform:translate(-50%,-100%); /* 가운데-아래 앵커 */
       padding:.35em .5em;border-radius:10px;border:1px solid rgba(255,255,255,.15);
       background:rgba(17,20,28,.85);color:#fff;font-weight:800;white-space:nowrap;letter-spacing:.02em;
       box-shadow:0 4px 10px rgba(0,0,0,.35)
@@ -64,7 +62,6 @@
     .grid{display:grid;gap:8px}
     .grid.cols-2{grid-template-columns:1fr 1fr}
 
-    /* 오른쪽 상단 버전 배지 */
     .version-badge{
       position:fixed; right:10px; top:8px; z-index:1000;
       background:rgba(90,162,255,.15); border:1px solid var(--border); color:var(--text);
@@ -78,7 +75,7 @@
   </style>
 </head>
 <body>
-  <div class="version-badge">V1.6</div>
+  <div class="version-badge">V1.7</div>
 
   <div class="app">
     <div class="toolbar">
@@ -157,7 +154,7 @@
     view: { scale: 1, tx: 0, ty: 0 }
   };
 
-  // ---------- UI ----------
+  /* ---------- UI ---------- */
   function buildDaySeg(){
     daySeg.innerHTML = '';
     for(const d of DAYS){
@@ -194,8 +191,8 @@
     status.textContent = msg ? `${base} · ${msg}` : base;
   }
 
-  // ---------- Persistence ----------
-  const LS_KEY = 'map-labeler-v4';
+  /* ---------- Persistence ---------- */
+  const LS_KEY = 'map-labeler-v5'; // 새 버전 키
   let userAdjustedView = false;
   let coverMinScale = 1;
 
@@ -212,7 +209,40 @@
   }
   const debounce = (fn, ms=150) => { let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); } };
 
-  // ---------- Map & Labels ----------
+  /* ---------- Image processing for persistence ---------- */
+  async function fileToDataURL(file){
+    return new Promise((resolve, reject)=>{
+      const fr = new FileReader();
+      fr.onload = () => resolve(fr.result);
+      fr.onerror = reject;
+      fr.readAsDataURL(file);
+    });
+  }
+  async function downscaleDataURL(dataUrl, maxSide=2200, mime='image/jpeg', quality=0.9){
+    return new Promise((resolve)=>{
+      const img = new Image();
+      img.onload = () => {
+        let w = img.naturalWidth || img.width;
+        let h = img.naturalHeight || img.height;
+        const scale = Math.min(1, maxSide / Math.max(w, h));
+        const sw = Math.max(1, Math.round(w * scale));
+        const sh = Math.max(1, Math.round(h * scale));
+        const c = document.createElement('canvas'); c.width = sw; c.height = sh;
+        const ctx = c.getContext('2d'); ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, sw, sh);
+        try{ resolve(c.toDataURL(mime, quality)); }catch(e){ resolve(dataUrl); }
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    });
+  }
+  async function loadAndPersistImage(file){
+    const dataUrl = await fileToDataURL(file);
+    const compact = await downscaleDataURL(dataUrl);
+    setMap(compact);
+  }
+
+  /* ---------- Map & Labels ---------- */
   function setMap(dataUrl){
     state.mapDataUrl = dataUrl;
     mapImg.src = dataUrl;
@@ -253,13 +283,17 @@
     refreshSelections();
   }
 
-  // ✅ 정확 좌표계: 현재 뷰(tx/ty/scale) 역산하여 '원본 이미지' 퍼센트로 저장
+  /* ✅ 좌표계 핵심 수정:
+     - stage의 실제 화면 사각형(stage.getBoundingClientRect())을 구함
+     - 화면좌표 → (사각형 기준) → 현재 scale 역적용 → 원본 이미지 좌표
+     - 그 좌표를 naturalWidth/Height로 나눠 퍼센트 저장
+     이렇게 해야 중앙/오른쪽에서도 오차가 0이 됨.
+  */
   function clientToImagePercent(clientX, clientY){
-    const wrapRect = mapWrap.getBoundingClientRect();
-    const { scale, tx, ty } = state.view;
-
-    const xStage = (clientX - wrapRect.left - tx) / scale;
-    const yStage = (clientY - wrapRect.top  - ty) / scale;
+    const rect = stage.getBoundingClientRect();       // 변환(translate+scale) 반영된 stage의 화면 사각형
+    const v = state.view;
+    const xStage = (clientX - rect.left) / v.scale;   // 원본 좌표계 X
+    const yStage = (clientY - rect.top)  / v.scale;   // 원본 좌표계 Y
 
     const naturalW = mapImg.naturalWidth || mapImg.width;
     const naturalH = mapImg.naturalHeight || mapImg.height;
@@ -270,7 +304,7 @@
     return { xPct, yPct };
   }
 
-  // ---------- Pinch Zoom & Pan ----------
+  /* ---------- Pinch Zoom & Pan (2 fingers zoom / 1 finger pan) ---------- */
   let pointers = new Map();
 
   function applyView(){
@@ -372,7 +406,7 @@
     saveViewDebounced();
   }, {passive:false});
 
-  // ---------- JSON/IO ----------
+  /* ---------- JSON/IO ---------- */
   modeBtns.normal.addEventListener('click', ()=>{ state.mode='normal'; refreshSelections(); });
   modeBtns.extended.addEventListener('click', ()=>{ state.mode='extended'; refreshSelections(); });
 
@@ -389,10 +423,13 @@
 
   mapFile.addEventListener('change', async e => {
     const f = e.target.files && e.target.files[0]; if(!f) return;
-    const r = new FileReader();
-    r.onload  = () => setMap(r.result);
-    r.onerror = () => { updateStatus('파일 읽기 실패'); alert('파일을 읽는 중 오류가 발생했습니다.'); };
-    r.readAsDataURL(f);
+    updateStatus('이미지 처리 중…');
+    try{ await loadAndPersistImage(f); }
+    catch(err){
+      const r = new FileReader(); r.onload = ()=>setMap(r.result);
+      r.onerror = ()=>{ updateStatus('파일 읽기 실패'); alert('파일을 읽는 중 오류가 발생했습니다.'); };
+      r.readAsDataURL(f);
+    }
   });
 
   exportBtn.addEventListener('click', ()=>{
@@ -423,7 +460,7 @@
     reader.readAsText(f);
   });
 
-  // ---------- iOS 높이 보정 ----------
+  /* ---------- iOS 높이 보정 ---------- */
   function setMapHeight(){
     const vh = (window.visualViewport ? window.visualViewport.height : window.innerHeight) * 0.68;
     mapWrap.style.height = Math.max(240, Math.round(vh)) + 'px';
@@ -432,12 +469,12 @@
   window.addEventListener('resize', setMapHeight);
   window.addEventListener('orientationchange', setMapHeight);
 
-  // ---------- iOS 사파리 페이지 핀치 줌 방지 ----------
+  /* ---------- iOS 기본 핀치 줌 방지 ---------- */
   ['gesturestart','gesturechange','gestureend'].forEach(evt=>{
     document.addEventListener(evt, e => e.preventDefault(), {passive:false});
   });
 
-  // ---------- Init ----------
+  /* ---------- Init ---------- */
   buildDaySeg();
   buildSizeSeg();
   loadLocal();

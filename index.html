@@ -72,7 +72,7 @@
 </style>
 </head>
 <body>
-  <div class="version-badge">V2.6</div>
+  <div class="version-badge">V2.6+</div>
 
   <div class="app">
     <div class="toolbar">
@@ -145,7 +145,6 @@
 
   const DAYS=['월','화','수','목','금','토','일']; const SIZES=[25,50,70,100];
   const PHOTO_MAX_SIZE = 400*1024; // 400KB (라벨당)
-  const PHOTO_MODAL_BG = 'rgba(0,0,0,0.65)';
 
   let state={mapDataUrl:'',labels:[],mode:'normal',day:'월',size:100,deleteMode:'none',view:{scale:1,tx:0,ty:0},photoMode:'off',pendingPhoto:null};
   let pendingLabelCoord=null;
@@ -182,20 +181,19 @@
   const downscale=(dataUrl,maxSide=1200,mime='image/jpeg',q=.85)=>new Promise(r=>{const img=new Image(); img.onload=()=>{const w=img.naturalWidth,h=img.naturalHeight,sc=Math.min(1,maxSide/Math.max(w,h)); const cw=Math.max(1,Math.round(w*sc)), ch=Math.max(1,Math.round(h*sc)); const c=document.createElement('canvas'); c.width=cw; c.height=ch; const ctx=c.getContext('2d'); ctx.imageSmoothingQuality='high'; ctx.drawImage(img,0,0,cw,ch); try{r(c.toDataURL(mime,q));}catch(e){r(dataUrl);} }; img.onerror=()=>r(dataUrl); img.src=dataUrl;});
   async function loadAndPersistImage(file){
     warnMsg.textContent = '';
-    if (file.size > 2_000_000) { // 2MB 제한
+    if (file.size > 2_000_000) {
       warnMsg.textContent = '이미지 파일이 너무 큽니다. 2MB 이하로 축소해서 올려주세요!';
       alert('이미지 파일이 너무 큽니다. 2MB 이하로 축소해서 올려주세요!');
       return;
     }
     const dataUrl = await fileToDataURL(file);
     let compact;
-    try {
-      compact = await downscale(dataUrl, 1200, 'image/jpeg', 0.85);
-    } catch(e) {
-      compact = dataUrl;
-    }
+    try { compact = await downscale(dataUrl, 1200, 'image/jpeg', 0.85); }
+    catch(e) { compact = dataUrl; }
     if (!compact) compact = dataUrl;
+    // 반드시 미리보기!
     setMap(compact);
+    // 저장은 실패해도 미리보기는 항상!
     try { await idbSet('img', compact); } catch(e) {}
     try { if (compact.length < 2_000_000) { state.mapDataUrl = compact; saveLocal(); } }
     catch {}
@@ -332,7 +330,7 @@
     applyView();
   }
 
-  mapWrap.addEventListener('pointerdown',e=>{mapWrap.setPointerCapture(e.pointerId); pointers.set(e.pointerId,{x:e.clientX,y:e.clientY,px:e.clientX,py:e.clientY,dx:e.clientX,dy:e.clientY,t:performance.now()});});
+  mapWrap.addEventListener('pointerdown',e=>{mapWrap.setPointerCapture(e.pointerId); pointers.set(e.pointerId,{x:e.clientX,y:e.clientY,px=e.clientX,py=e.clientY,dx=e.clientX,dy=e.clientY,t:performance.now()});});
   mapWrap.addEventListener('pointermove',e=>{
     if(!pointers.has(e.pointerId)) return;
     const p=pointers.get(e.pointerId); p.px=p.x; p.py=p.y; p.x=e.clientX; p.y=e.clientY;

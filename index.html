@@ -40,7 +40,7 @@
     .map-img{display:block;max-width:none;height:auto;pointer-events:none;user-select:none; touch-action:none}
     .labels{position:absolute;left:0;top:0;right:0;bottom:0}
 
-    /* ✅ 라벨 기준: 가로 중앙(탭 지점이 라벨 중앙) + 아래쪽 붙임 */
+    /* 라벨: 가로 중앙, 아래쪽 기준 */
     .label{
       position:absolute;transform:translate(-50%,-100%);
       padding:.35em .5em;border-radius:10px;border:1px solid rgba(255,255,255,.15);
@@ -54,6 +54,15 @@
     .label[data-size="70"]{font-size:14px}
     .label[data-size="100"]{font-size:16px}
 
+    /* 탭 마커(잠깐 보이는 점) */
+    .tap-dot{
+      position:fixed; width:10px; height:10px; border-radius:50%;
+      background:#fff; box-shadow:0 0 0 2px rgba(0,0,0,.4);
+      transform:translate(-50%,-50%); pointer-events:none; z-index:9999; opacity:.9;
+      animation: fade 0.6s ease-out forwards;
+    }
+    @keyframes fade{ to{ opacity:0; transform:translate(-50%,-50%) scale(0.8);} }
+
     .hint{font-size:12px;color:var(--muted)}
     .spacer{flex:1}
     input[type=file]{display:none}
@@ -62,7 +71,6 @@
     .grid{display:grid;gap:8px}
     .grid.cols-2{grid-template-columns:1fr 1fr}
 
-    /* 버전 배지 */
     .version-badge{
       position:fixed; right:10px; top:8px; z-index:1000;
       background:rgba(90,162,255,.15); border:1px solid var(--border); color:var(--text);
@@ -76,7 +84,7 @@
   </style>
 </head>
 <body>
-  <div class="version-badge">V1.9</div>
+  <div class="version-badge">V2.0</div>
 
   <div class="app">
     <div class="toolbar">
@@ -222,7 +230,7 @@
   }
 
   /* ---------------- Persistence (메타) ---------------- */
-  const LS_KEY = 'map-labeler-v7';
+  const LS_KEY = 'map-labeler-v8';
   let userAdjustedView = false;
   let coverMinScale = 1;
 
@@ -313,9 +321,18 @@
     }
   }
 
+  function showTapDot(x,y){
+    const dot = document.createElement('div');
+    dot.className = 'tap-dot';
+    dot.style.left = x+'px'; dot.style.top = y+'px';
+    document.body.appendChild(dot);
+    setTimeout(()=>dot.remove(), 600);
+  }
+
   function addLabelAt(clientX, clientY){
     if(!mapImg.src) return;
     if(state.deleteMode!=='none') return;
+    showTapDot(clientX, clientY); // 시각 확인용
     const pt = clientToImagePercent(clientX, clientY);
     if(!pt) return;
     const text = state.mode==='extended' ? ('6'+state.day) : state.day;
@@ -324,17 +341,15 @@
     refreshSelections();
   }
 
-  // ✅ 좌표계: wrap 기준 → (tx,ty,scale) 역적용 → 원본 이미지 퍼센트
+  /* ✅ 좌표계: '변환된 stage의 실제 사각형' 기준 퍼센트 → 가장 견고한 방식
+     - stageRect.width = naturalWidth * scale (transform 반영)
+     - xPct = (clientX - stageRect.left) / stageRect.width * 100
+  */
   function clientToImagePercent(clientX, clientY){
-    const wrap = mapWrap.getBoundingClientRect();
-    const { scale, tx, ty } = state.view;
-    const xStage = (clientX - wrap.left - tx) / scale;
-    const yStage = (clientY - wrap.top  - ty) / scale;
-    const w = mapImg.naturalWidth  || mapImg.width;
-    const h = mapImg.naturalHeight || mapImg.height;
-    if(w<=0 || h<=0) return null;
-    const xPct = Math.max(0, Math.min(100, +(xStage / w * 100).toFixed(4)));
-    const yPct = Math.max(0, Math.min(100, +(yStage / h * 100).toFixed(4)));
+    const rect = stage.getBoundingClientRect(); // transform 반영
+    if(rect.width<=0 || rect.height<=0) return null;
+    const xPct = Math.max(0, Math.min(100, ((clientX - rect.left)  / rect.width  * 100)));
+    const yPct = Math.max(0, Math.min(100, ((clientY - rect.top )  / rect.height * 100)));
     return { xPct, yPct };
   }
 

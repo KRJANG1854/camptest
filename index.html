@@ -173,6 +173,8 @@
 
   // ---------- Persistence ----------
   const LS_KEY = 'map-labeler-v2';
+  let userAdjustedView = false; // 사용자가 팬/줌 했는지 여부
+  let coverMinScale = 1;        // 컨테이너 꽉 채우는 최소 배율(커버) 값 캐시
   function saveLocal(){
     try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); }catch(e){ console.warn('save failed', e); }
   }
@@ -192,7 +194,7 @@
   function setMap(dataUrl){
     state.mapDataUrl = dataUrl;
     mapImg.src = dataUrl;
-    mapImg.onload = () => fitView();
+    mapImg.onload = () => { userAdjustedView=false; fitCover(); }
     saveLocal();
   }
 
@@ -247,17 +249,22 @@
   let pointers = new Map(); // id -> {x,y,prevX,prevY,downX,downY,downT}
 
   function applyView(){
+    clampViewToCover();
     const v = state.view;
     stage.style.transform = `translate(${v.tx}px, ${v.ty}px) scale(${v.scale})`;
+  }px, ${v.ty}px) scale(${v.scale})`;
   }
-  function fitView(){
+  function fitCover(){
+    // 컨테이너를 여백 없이 가득 채우는(cover) 배율과 중심 정렬 계산
     const naturalW = mapImg.naturalWidth || 0; const naturalH = mapImg.naturalHeight || 0;
     if(!naturalW || !naturalH){ applyView(); return; }
     const wrap = mapWrap.getBoundingClientRect();
-    const scale = Math.min(wrap.width / naturalW, wrap.height / naturalH) || 1;
-    const tx = (wrap.width - naturalW*scale)/2;
-    const ty = (wrap.height - naturalH*scale)/2;
-    state.view = { scale, tx, ty };
+    coverMinScale = Math.max(wrap.width / naturalW, wrap.height / naturalH) || 1;
+    const stageW = naturalW * coverMinScale;
+    const stageH = naturalH * coverMinScale;
+    const tx = (wrap.width - stageW)/2;
+    const ty = (wrap.height - stageH)/2;
+    state.view = { scale: coverMinScale, tx, ty };
     applyView();
   }
   const saveViewDebounced = debounce(saveLocal, 200);
@@ -266,16 +273,33 @@
     const wrap = mapWrap.getBoundingClientRect();
     const v = state.view;
     return { x: (x - wrap.left - v.tx) / v.scale, y: (y - wrap.top - v.ty) / v.scale };
+  };
   }
   function clamp(v,min,max){return Math.max(min, Math.min(max, v));}
+
+  function clampViewToCover(){
+    // 이미지가 컨테이너 밖으로 빠져 여백이 보이지 않도록 tx/ty를 제한 (scale>=coverMinScale 가정)
+    const naturalW = mapImg.naturalWidth || 0; const naturalH = mapImg.naturalHeight || 0; if(!naturalW||!naturalH) return;
+    const wrap = mapWrap.getBoundingClientRect();
+    const stageW = naturalW * state.view.scale;
+    const stageH = naturalH * state.view.scale;
+    // 이미지가 컨테이너보다 작아지지 않도록(이미 coverMinScale에서 제한)
+    const minTx = Math.min(0, wrap.width - stageW);
+    const maxTx = 0;
+    const minTy = Math.min(0, wrap.height - stageH);
+    const maxTy = 0;
+    state.view.tx = clamp(state.view.tx, minTx, maxTx);
+    state.view.ty = clamp(state.view.ty, minTy, maxTy);
+  }
 
   function zoomAround(factor, center){
     const v = state.view;
     const pre = screenToStage(center.x, center.y);
-    v.scale = clamp(v.scale * factor, 0.3, 8);
+    v.scale = clamp(v.scale * factor, coverMinScale, 8); // 최소 배율은 cover
     const post = screenToStage(center.x, center.y);
     v.tx += (post.x - pre.x) * v.scale;
     v.ty += (post.y - pre.y) * v.scale;
+    userAdjustedView = true;
     applyView();
   }
 
@@ -305,7 +329,7 @@
     } else if(pointers.size===1){
       // pan by pointer delta
       const dx = p.x - p.prevX; const dy = p.y - p.prevY;
-      state.view.tx += dx; state.view.ty += dy; applyView(); saveViewDebounced();
+      state.view.tx += dx; state.view.ty += dy; userAdjustedView = true; applyView(); saveViewDebounced();
     }
   }, {passive:true});
 
@@ -350,7 +374,7 @@
     if(ok){ state.labels = []; renderLabels(); refreshSelections(); }
   });
 
-  resetViewBtn.addEventListener('click', ()=>{ fitView(); saveLocal(); });
+  resetViewBtn.addEventListener('click', ()=>{ userAdjustedView=false; fitCover(); saveLocal(); }); saveLocal(); });
 
   mapFile.addEventListener('change', e => {
     const f = e.target.files?.[0]; if(!f) return;
@@ -378,7 +402,7 @@
         if(!obj || !('labels' in obj)) throw new Error('잘못된 JSON');
         state = Object.assign(state, obj);
         if(state.mapDataUrl) mapImg.src = state.mapDataUrl; else mapImg.removeAttribute('src');
-        mapImg.onload = () => fitView();
+        mapImg.onload = () => { userAdjustedView=false; fitCover(); };
         renderLabels();
         refreshSelections();
       }catch(err){ alert('JSON을 읽는 중 오류: '+err.message); }
@@ -390,10 +414,11 @@
   buildDaySeg();
   buildSizeSeg();
   loadLocal();
-  if(state.mapDataUrl){ mapImg.src = state.mapDataUrl; mapImg.onload = () => fitView(); }
+  if(state.mapDataUrl){ mapImg.src = state.mapDataUrl; mapImg.onload = () => { userAdjustedView=false; fitCover(); }; }
   renderLabels();
   refreshSelections();
-  window.addEventListener('resize', fitView);
+  // 화면 회전/리사이즈 시: 사용자가 아직 조작하지 않았다면 커버 재계산
+  window.addEventListener('resize', () => { if(!userAdjustedView) fitCover(); });
 })();
 </script>
 </body>

@@ -1,60 +1,60 @@
 <!doctype html>
 <html lang="ko">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
-  <title>모바일 지도로 요일 라벨러</title>
-  <style>
-    :root{
-      --bg:#0b0b0f; --panel:#14151a; --muted:#7f8596; --text:#e9ecf1; --accent:#5aa2ff; --danger:#ff6b6b;
-      --btn:#1c1f27; --btn2:#202431; --border:#2a3040;
-    }
-    html,body{height:100%; overscroll-behavior:none;}
-    body{margin:0;background:var(--bg);color:var(--text);
-      font-family:system-ui,-apple-system,Segoe UI,Roboto,Pretendard,Apple SD Gothic Neo,Malgun Gothic,sans-serif;
-      -webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;}
-    .app{display:flex;flex-direction:column;gap:10px;max-width:1000px;margin:0 auto;padding:10px;}
-    .toolbar{display:grid;grid-template-columns:1fr;gap:10px;}
-    .panel{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:12px;}
-    .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-    .btn{appearance:none;border:1px solid var(--border);background:var(--btn);color:var(--text);
-      padding:10px 12px;border-radius:12px;font-size:14px;line-height:1;font-weight:600;cursor:pointer}
-    .btn.danger{background:#2a1515;border-color:#3a1c1c;color:#ffdede}
-    .seg{display:inline-flex;background:var(--btn2);border:1px solid var(--border);border-radius:12px;overflow:hidden}
-    .seg button{all:unset;padding:10px 12px;cursor:pointer;color:var(--text);font-weight:700}
-    .seg button[aria-pressed="true"]{background:var(--accent);color:#000}
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+<title>모바일 지도로 요일 라벨러</title>
+<style>
+  :root{
+    --bg:#0b0b0f; --panel:#14151a; --muted:#7f8596; --text:#e9ecf1; --accent:#5aa2ff; --danger:#ff6b6b;
+    --btn:#1c1f27; --btn2:#202431; --border:#2a3040;
+  }
+  html,body{height:100%; overscroll-behavior:none;}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,Pretendard,Apple SD Gothic Neo,Malgun Gothic,sans-serif;
+    -webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;}
+  .app{display:flex;flex-direction:column;gap:10px;max-width:1000px;margin:0 auto;padding:10px;}
+  .toolbar{display:grid;grid-template-columns:1fr;gap:10px;}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:12px;}
+  .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .btn{appearance:none;border:1px solid var(--border);background:var(--btn);color:var(--text);
+    padding:10px 12px;border-radius:12px;font-size:14px;line-height:1;font-weight:600;cursor:pointer}
+  .btn.danger{background:#2a1515;border-color:#3a1c1c;color:#ffdede}
+  .seg{display:inline-flex;background:var(--btn2);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+  .seg button{all:unset;padding:10px 12px;cursor:pointer;color:var(--text);font-weight:700}
+  .seg button[aria-pressed="true"]{background:var(--accent);color:#000}
 
-    .map-wrap{position:relative;background:#0a0b0f;border:1px solid var(--border);border-radius:14px;overflow:hidden;
-      touch-action:none;height:68vh}
-    .map-stage{position:relative;transform-origin:0 0}
-    .map-img{display:block;max-width:none;height:auto;pointer-events:none;user-select:none}
-    .labels{position:absolute;left:0;top:0;right:0;bottom:0}
+  .map-wrap{position:relative;background:#0a0b0f;border:1px solid var(--border);border-radius:14px;overflow:hidden;
+    touch-action:none;height:68vh}
+  .map-stage{position:relative;transform-origin:0 0}
+  .map-img{display:block;max-width:none;height:auto;pointer-events:none;user-select:none}
+  .labels{position:absolute;left:0;top:0;right:0;bottom:0}
 
-    /* 라벨은 픽셀 기준으로 배치하고 중앙정렬 */
-    .label{
-      position:absolute; transform:translate(-50%,-100%);
-      padding:.35em .5em;border-radius:10px;border:1px solid rgba(255,255,255,.15);
-      background:rgba(17,20,28,.85);color:#fff;font-weight:800;white-space:nowrap;letter-spacing:.02em;
-      box-shadow:0 4px 10px rgba(0,0,0,.35)
-    }
-    .label.normal{background:rgba(30,143,255,.9)}
-    .label.extended{background:rgba(255,166,0,.95)}
-    .label[data-size="25"]{font-size:10px}
-    .label[data-size="50"]{font-size:12px}
-    .label[data-size="70"]{font-size:14px}
-    .label[data-size="100"]{font-size:16px}
+  /* 라벨: % 기준, 중앙-아래 정렬 */
+  .label{
+    position:absolute; transform:translate(-50%,-100%);
+    padding:.35em .5em;border-radius:10px;border:1px solid rgba(255,255,255,.15);
+    background:rgba(17,20,28,.85);color:#fff;font-weight:800;white-space:nowrap;letter-spacing:.02em;
+    box-shadow:0 4px 10px rgba(0,0,0,.35)
+  }
+  .label.normal{background:rgba(30,143,255,.9)}
+  .label.extended{background:rgba(255,166,0,.95)}
+  .label[data-size="25"]{font-size:10px}
+  .label[data-size="50"]{font-size:12px}
+  .label[data-size="70"]{font-size:14px}
+  .label[data-size="100"]{font-size:16px}
 
-    .tap-dot{position:fixed;width:10px;height:10px;border-radius:50%;background:#fff;box-shadow:0 0 0 2px rgba(0,0,0,.4);
-      transform:translate(-50%,-50%);pointer-events:none;z-index:9999;opacity:.9;animation:fade .6s ease-out forwards}
-    @keyframes fade{to{opacity:0;transform:translate(-50%,-50%) scale(.8)}}
+  .tap-dot{position:fixed;width:10px;height:10px;border-radius:50%;background:#fff;box-shadow:0 0 0 2px rgba(0,0,0,.4);
+    transform:translate(-50%,-50%);pointer-events:none;z-index:9999;opacity:.9;animation:fade .6s ease-out forwards}
+  @keyframes fade{to{opacity:0;transform:translate(-50%,-50%) scale(.8)}}
 
-    .version-badge{position:fixed;right:10px;top:8px;z-index:1000;background:rgba(90,162,255,.15);
-      border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:10px;font-weight:800;font-size:13px}
-    @media (min-width:760px){.toolbar{grid-template-columns:1.2fr .8fr}}
-  </style>
+  .version-badge{position:fixed;right:10px;top:8px;z-index:1000;background:rgba(90,162,255,.15);
+    border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:10px;font-weight:800;font-size:13px}
+  @media (min-width:760px){.toolbar{grid-template-columns:1.2fr .8fr}}
+</style>
 </head>
 <body>
-  <div class="version-badge">V2.2</div>
+  <div class="version-badge">V2.3</div>
 
   <div class="app">
     <div class="toolbar">
@@ -127,7 +127,7 @@
   }
 
   /* ---------- 저장 ---------- */
-  const LS_KEY='map-labeler-v10'; let userAdjusted=false, coverMin=1;
+  const LS_KEY='map-labeler-v11'; let userAdjusted=false, coverMin=1;
   function saveLocal(){ try{localStorage.setItem(LS_KEY, JSON.stringify(state));}catch{} }
   async function saveAll(){ saveLocal(); try{await idbSet('labels', state.labels);}catch{} }
   function loadLocal(){ try{const raw=localStorage.getItem(LS_KEY); if(raw){const obj=JSON.parse(raw); if(obj && typeof obj==='object') state=Object.assign(state,obj);} if(state.mapDataUrl?.startsWith('blob:')) state.mapDataUrl=''; }catch{} }
@@ -139,23 +139,29 @@
   async function loadAndPersistImage(file){ const dataUrl=await fileToDataURL(file); const compact=await downscale(dataUrl); setMap(compact); try{await idbSet('img',compact);}catch{} try{ if(compact.length<3_500_000){state.mapDataUrl=compact; saveLocal();} else {state.mapDataUrl=''; saveLocal();} }catch{} }
 
   /* ---------- 맵 & 라벨 ---------- */
-  function setMap(dataUrl){ state.mapDataUrl=dataUrl||state.mapDataUrl; mapImg.src=dataUrl; mapImg.onload=()=>{userAdjusted=false; fitCover();}; mapImg.onerror=()=>alert('이미지 로딩 실패'); saveLocal(); }
+  function setStageSizeToNatural(){
+    // 중요: stage의 레이아웃 크기를 이미지 자연 크기로 고정
+    const w = mapImg.naturalWidth || 0, h = mapImg.naturalHeight || 0;
+    if(w && h){ stage.style.width = w + 'px'; stage.style.height = h + 'px'; }
+  }
+
+  function setMap(dataUrl){
+    state.mapDataUrl=dataUrl||state.mapDataUrl;
+    mapImg.src=dataUrl;
+    mapImg.onload=()=>{ setStageSizeToNatural(); userAdjusted=false; fitCover(); renderLabels(); };
+    mapImg.onerror=()=>alert('이미지 로딩 실패');
+    saveLocal();
+  }
 
   function renderLabels(){
     labelsLayer.innerHTML='';
-    const r = labelsLayer.getBoundingClientRect(); // 현재 레이어 크기
-    const Lw = r.width, Lh = r.height;
     for(const lab of state.labels){
       const el=document.createElement('div');
       el.className='label '+(lab.kind==='extended'?'extended':'normal');
       el.dataset.size=lab.size; el.textContent=lab.text;
-
-      // 퍼센트를 현재 레이어 픽셀로 환산하여 배치
-      const leftPx = (lab.xPct/100) * Lw;
-      const topPx  = (lab.yPct/100) * Lh;
-      el.style.left = leftPx + 'px';
-      el.style.top  = topPx  + 'px';
-
+      // % 좌표로 배치 (stage 원본 폭/높이 기준)
+      el.style.left = lab.xPct + '%';
+      el.style.top  = lab.yPct + '%';
       el.addEventListener('pointerdown',ev=>ev.stopPropagation(),{passive:true});
       el.addEventListener('click',ev=>{
         ev.stopPropagation();
@@ -172,16 +178,16 @@
   function addLabelAt(clientX, clientY){
     if(!mapImg.src || state.deleteMode!=='none') return;
     showTapDot(clientX, clientY);
-    const pt = clientToPercentOnLabels(clientX, clientY);
+    const pt = clientToPercentOnStage(clientX, clientY);
     if(!pt) return;
     const text = state.mode==='extended' ? ('6'+state.day) : state.day;
     state.labels.push({ xPct: pt.xPct, yPct: pt.yPct, text, size: state.size, kind: state.mode });
     renderLabels(); refresh();
   }
 
-  // 보이는 labels 레이어 기준 퍼센트 저장 (가장 직관적)
-  function clientToPercentOnLabels(clientX, clientY){
-    const r = labelsLayer.getBoundingClientRect();
+  // ✅ 좌표: 변환된 stage 사각형 기준 퍼센트(가장 정확)
+  function clientToPercentOnStage(clientX, clientY){
+    const r = stage.getBoundingClientRect();
     if(r.width<=0 || r.height<=0) return null;
     const xPct = Math.max(0, Math.min(100, ((clientX - r.left) / r.width  * 100)));
     const yPct = Math.max(0, Math.min(100, ((clientY - r.top ) / r.height * 100)));
@@ -189,24 +195,57 @@
   }
 
   /* ---------- 제스처(핀치/팬) ---------- */
-  let pointers=new Map();
-  function applyView(){ clampView(); const v=state.view; stage.style.transform=`translate(${v.tx}px, ${v.ty}px) scale(${v.scale})`; }
-  function fitCover(){ const w=mapImg.naturalWidth||0,h=mapImg.naturalHeight||0; if(!w||!h){applyView();return;} const wrap=mapWrap.getBoundingClientRect(); coverMin=Math.max(wrap.width/w, wrap.height/h)||1; const stageW=w*coverMin, stageH=h*coverMin; state.view={scale:coverMin, tx:(wrap.width-stageW)/2, ty:(wrap.height-stageH)/2}; applyView(); renderLabels(); } // 스케일 변경시 재그리기
-  const saveDeb=debounce(()=>saveAll(),200);
-  function screenToStage(x,y){ const wrap=mapWrap.getBoundingClientRect(), v=state.view; return {x:(x-wrap.left-v.tx)/v.scale, y:(y-wrap.top-v.ty)/v.scale};}
+  let pointers=new Map(); let coverMin=1;
   function clamp(v,min,max){return Math.max(min, Math.min(max,v));}
-  function clampView(){ const w=mapImg.naturalWidth||0, h=mapImg.naturalHeight||0; if(!w||!h) return; const wrap=mapWrap.getBoundingClientRect(); const stageW=w*state.view.scale, stageH=h*state.view.scale; const minTx=Math.min(0, wrap.width-stageW), maxTx=0, minTy=Math.min(0, wrap.height-stageH), maxTy=0; state.view.tx=clamp(state.view.tx,minTx,maxTx); state.view.ty=clamp(state.view.ty,minTy,maxTy); }
-  function zoom(f, c){ const v=state.view; const pre=screenToStage(c.x,c.y); v.scale=clamp(v.scale*f, coverMin, 8); const post=screenToStage(c.x,c.y); v.tx+=(post.x-pre.x)*v.scale; v.ty+=(post.y-pre.y)*v.scale; userAdjusted=true; applyView(); renderLabels(); }
+  function applyView(){ clampView(); const v=state.view; stage.style.transform=`translate(${v.tx}px, ${v.ty}px) scale(${v.scale})`; }
+  function fitCover(){
+    const w=mapImg.naturalWidth||0,h=mapImg.naturalHeight||0; if(!w||!h){applyView();return;}
+    const wrap=mapWrap.getBoundingClientRect();
+    coverMin=Math.max(wrap.width/w, wrap.height/h)||1;
+    const stageW=w*coverMin, stageH=h*coverMin;
+    state.view={scale:coverMin, tx:(wrap.width-stageW)/2, ty:(wrap.height-stageH)/2};
+    applyView();
+  }
+  function clampView(){
+    const w=mapImg.naturalWidth||0, h=mapImg.naturalHeight||0; if(!w||!h) return;
+    const wrap=mapWrap.getBoundingClientRect();
+    const stageW=w*state.view.scale, stageH=h*state.view.scale;
+    const minTx=Math.min(0, wrap.width-stageW), maxTx=0;
+    const minTy=Math.min(0, wrap.height-stageH), maxTy=0;
+    state.view.tx=clamp(state.view.tx,minTx,maxTx);
+    state.view.ty=clamp(state.view.ty,minTy,maxTy);
+  }
+  function screenToStage(x,y){ const wrap=mapWrap.getBoundingClientRect(), v=state.view; return {x:(x-wrap.left-v.tx)/v.scale, y:(y-wrap.top-v.ty)/v.scale};}
+  function zoom(f, c){
+    const v=state.view; const pre=screenToStage(c.x,c.y);
+    v.scale=clamp(v.scale*f, coverMin, 8);
+    const post=screenToStage(c.x,c.y);
+    v.tx+=(post.x-pre.x)*v.scale; v.ty+=(post.y-pre.y)*v.scale;
+    applyView();
+  }
 
   mapWrap.addEventListener('pointerdown',e=>{mapWrap.setPointerCapture(e.pointerId); pointers.set(e.pointerId,{x:e.clientX,y:e.clientY,px:e.clientX,py:e.clientY,dx:e.clientX,dy:e.clientY,t:performance.now()});});
-  mapWrap.addEventListener('pointermove',e=>{ if(!pointers.has(e.pointerId)) return; const p=pointers.get(e.pointerId); p.px=p.x; p.py=p.y; p.x=e.clientX; p.y=e.clientY;
-    if(pointers.size===2){ const ids=[...pointers.keys()], a=pointers.get(ids[0]), b=pointers.get(ids[1]); const d0=Math.hypot(a.px-b.px,a.py-b.py), d1=Math.hypot(a.x-b.x,a.y-b.y); if(d0>0){ const f=d1/d0; zoom(f,{x:(a.x+b.x)/2,y:(a.y+b.y)/2}); } }
-    else if(pointers.size===1){ const dx=p.x-p.px, dy=p.y-p.py; state.view.tx+=dx; state.view.ty+=dy; userAdjusted=true; applyView(); }
+  mapWrap.addEventListener('pointermove',e=>{
+    if(!pointers.has(e.pointerId)) return;
+    const p=pointers.get(e.pointerId); p.px=p.x; p.py=p.y; p.x=e.clientX; p.y=e.clientY;
+    if(pointers.size===2){
+      const ids=[...pointers.keys()], a=pointers.get(ids[0]), b=pointers.get(ids[1]);
+      const d0=Math.hypot(a.px-b.px,a.py-b.py), d1=Math.hypot(a.x-b.x,a.y-b.y);
+      if(d0>0){ const f=d1/d0; zoom(f,{x:(a.x+b.x)/2,y:(a.y+b.y)/2}); }
+    }else if(pointers.size===1){
+      const dx=p.x-p.px, dy=p.y-p.py; state.view.tx+=dx; state.view.ty+=dy; applyView();
+    }
   },{passive:true});
-  mapWrap.addEventListener('pointerup',e=>{ const p=pointers.get(e.pointerId); if(p){ const dt=performance.now()-p.t; const mv=Math.hypot(e.clientX-p.dx, e.clientY-p.dy); const tap=dt<250 && mv<6 && pointers.size===1; if(tap) addLabelAt(e.clientX,e.clientY);} pointers.delete(e.pointerId); saveAll(); });
+  mapWrap.addEventListener('pointerup',e=>{
+    const p=pointers.get(e.pointerId);
+    if(p){ const dt=performance.now()-p.t; const mv=Math.hypot(e.clientX-p.dx, e.clientY-p.dy);
+      const tap=dt<250 && mv<6 && pointers.size===1; if(tap) addLabelAt(e.clientX,e.clientY);
+    }
+    pointers.delete(e.pointerId); saveAll();
+  });
   mapWrap.addEventListener('pointercancel',e=>{pointers.delete(e.pointerId);});
   mapWrap.addEventListener('dblclick',e=>e.preventDefault(),{passive:false});
-  mapWrap.addEventListener('wheel',e=>{e.preventDefault(); const f=Math.pow(1.0015,-e.deltaY); zoom(f,{x:e.clientX,y:e.clientY}); saveDeb();},{passive:false});
+  mapWrap.addEventListener('wheel',e=>{e.preventDefault(); const f=Math.pow(1.0015,-e.deltaY); zoom(f,{x:e.clientX,y:e.clientY}); },{passive:false});
 
   /* ---------- 버튼/IO ---------- */
   modeBtns.normal.onclick=()=>{state.mode='normal'; refresh();};
@@ -214,18 +253,33 @@
   delBtns.none.onclick=()=>{state.deleteMode='none'; refresh();};
   delBtns.single.onclick=()=>{state.deleteMode='single'; refresh();};
   delAllBtn.onclick=()=>{ if(state.labels.length===0) return; if(confirm('전체 라벨을 삭제할까요?')){ state.labels=[]; renderLabels(); refresh(); } };
-  resetViewBtn.onclick=()=>{ userAdjusted=false; fitCover(); saveAll(); };
+  resetViewBtn.onclick=()=>{ fitCover(); saveAll(); };
 
-  mapFile.addEventListener('change',async e=>{const f=e.target.files?.[0]; if(!f) return; try{await loadAndPersistImage(f);}catch{const fr=new FileReader(); fr.onload=()=>setMap(fr.result); fr.readAsDataURL(f);} });
   exportBtn.onclick=()=>{ const data=JSON.stringify(state,null,2); const blob=new Blob([data],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='map-labels.json'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),2000); };
-  jsonFile.addEventListener('change',e=>{const f=e.target.files?.[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ try{const obj=JSON.parse(r.result); if(!obj || !('labels' in obj)) throw new Error('잘못된 JSON'); state=Object.assign(state,obj); if(state.mapDataUrl?.startsWith('blob:')) state.mapDataUrl=''; if(state.mapDataUrl) mapImg.src=state.mapDataUrl; else mapImg.removeAttribute('src'); mapImg.onload=()=>{userAdjusted=false; fitCover();}; renderLabels(); refresh(); }catch(err){alert('JSON 오류: '+err.message);} }; r.readAsText(f); });
+  mapFile.addEventListener('change',async e=>{const f=e.target.files?.[0]; if(!f) return; try{await loadAndPersistImage(f);}catch{const fr=new FileReader(); fr.onload=()=>setMap(fr.result); fr.readAsDataURL(f);} });
+  jsonFile.addEventListener('change',e=>{
+    const f=e.target.files?.[0]; if(!f) return;
+    const r=new FileReader();
+    r.onload=()=>{ try{
+        const obj=JSON.parse(r.result);
+        if(!obj || !('labels' in obj)) throw new Error('잘못된 JSON');
+        state=Object.assign(state,obj);
+        if(state.mapDataUrl?.startsWith('blob:')) state.mapDataUrl='';
+        if(state.mapDataUrl) mapImg.src=state.mapDataUrl; else mapImg.removeAttribute('src');
+        mapImg.onload=()=>{ setStageSizeToNatural(); fitCover(); renderLabels(); };
+        renderLabels(); refresh();
+      }catch(err){alert('JSON 오류: '+err.message);} };
+    r.readAsText(f);
+  });
 
   /* ---------- 초기화 ---------- */
   buildDaySeg(); buildSizeSeg(); loadLocal();
   (async()=>{ if(state.mapDataUrl){ setMap(state.mapDataUrl); }
               else { const fromIDB=await idbGet('img'); if(fromIDB) setMap(fromIDB); }
               if(!state.labels?.length){ const idbLabels=await idbGet('labels'); if(Array.isArray(idbLabels)) state.labels=idbLabels; }
-              fitCover(); renderLabels(); refresh();
+              // 이미지가 이미 로드된 상태(캐시)일 가능성 대비
+              if(mapImg.complete && mapImg.naturalWidth){ setStageSizeToNatural(); fitCover(); renderLabels(); }
+              refresh();
   })();
 })();
 </script>

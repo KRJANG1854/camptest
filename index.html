@@ -3,21 +3,21 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>모바일 지도로 요일 라벨러 v2.1</title>
+  <title>모바일 지도로 요일 라벨러</title>
   <style>
     :root{
       --bg:#0b0b0f; --panel:#14151a; --muted:#7f8596; --text:#e9ecf1; --accent:#5aa2ff; --danger:#ff6b6b;
       --btn:#1c1f27; --btn2:#202431; --border:#2a3040;
     }
     html,body{height:100%;}
-    body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Pretendard,Apple SD Gothic Neo,Malgun Gothic,sans-serif;-webkit-tap-highlight-color: transparent}
+    body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Pretendard,Apple SD Gothic Neo,Malgun Gothic,sans-serif;-webkit-tap-highlight-color: transparent;}
     .app{display:flex;flex-direction:column;gap:10px;max-width:1000px;margin:0 auto;padding:10px;}
     .toolbar{display:grid;grid-template-columns:1fr;gap:10px;}
     .panel{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:12px;}
     .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
     .row label{font-size:14px;color:var(--muted)}
     .btn{appearance:none;border:1px solid var(--border);background:var(--btn);color:var(--text);padding:10px 12px;border-radius:12px;font-size:14px;line-height:1;font-weight:600;cursor:pointer;user-select:none}
-    .btn[data-active="true"]{outline:2px solid var(--accent);}    
+    .btn[data-active="true"]{outline:2px solid var(--accent);}
     .btn:active{scale:.98}
     .btn.danger{background:#2a1515;border-color:#3a1c1c;color:#ffdede}
     .btn.ghost{background:transparent}
@@ -46,18 +46,28 @@
     .grid{display:grid;gap:8px}
     .grid.cols-2{grid-template-columns:1fr 1fr}
 
+    /* 오른쪽 상단 버전 배지 */
+    .version-badge{
+      position:fixed; right:10px; top:8px; z-index:1000;
+      background:rgba(90,162,255,.15); border:1px solid var(--border); color:var(--text);
+      padding:6px 10px; border-radius:10px; font-weight:800; font-size:13px; letter-spacing:.02em;
+      backdrop-filter: blur(4px);
+    }
+
     @media (min-width:760px){
       .toolbar{grid-template-columns:1.2fr .8fr}
     }
   </style>
 </head>
 <body>
+  <div class="version-badge">V1</div>
+
   <div class="app">
     <div class="toolbar">
       <div class="panel grid">
         <div class="row">
           <label class="file-label btn" for="mapFile">지도 업로드/교체</label>
-          <input id="mapFile" type="file" accept="image/*" capture="environment" />
+          <input id="mapFile" type="file" accept="image/*" />
           <button class="btn" id="resetView" title="지도를 화면에 맞춰 재정렬">보기 리셋</button>
           <div class="spacer"></div>
           <button class="btn" id="exportJson">JSON 내보내기</button>
@@ -116,7 +126,7 @@
   const delAllBtn = $('#delAll');
   const exportBtn = $('#exportJson');
 
-  const DAYS = ['월','화','수','목','금','토','일']; // 월~일
+  const DAYS = ['월','화','수','목','금','토','일'];
   const SIZES = [25,50,70,100];
 
   let state = {
@@ -161,17 +171,17 @@
     saveLocal();
   }
   function dayDisplay(){
-    return state.mode==='extended' ? ('6'+state.day) : state.day;
+    return state.mode==='extended' ? ('6'+state.day) : state.day; // 예: 6월, 6화...
   }
-  function updateStatus(){
-    status.textContent = `모드: ${state.mode==='normal'?'일반':'연장'} · 요일: ${dayDisplay()} · 크기: ${state.size}% · 라벨 ${state.labels.length}개`;
+  function updateStatus(msg){
+    const base = `모드: ${state.mode==='normal'?'일반':'연장'} · 요일: ${dayDisplay()} · 크기: ${state.size}% · 라벨 ${state.labels.length}개`;
+    status.textContent = msg ? `${base} · ${msg}` : base;
   }
 
   // ---------- Persistence ----------
   const LS_KEY = 'map-labeler-v2';
   let userAdjustedView = false; // 사용자가 팬/줌 했는지 여부
   let coverMinScale = 1;        // 컨테이너 꽉 채우는 최소 배율(커버)
-  let currentBlobUrl = null;    // 업로드된 이미지의 object URL 관리
 
   function saveLocal(){
     try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); }catch(e){ console.warn('save failed', e); }
@@ -193,11 +203,11 @@
   const debounce = (fn, ms=150) => { let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args), ms); } };
 
   // ---------- Map & Labels rendering ----------
-  function setMap(url){
-    state.mapDataUrl = url;
-    mapImg.src = url;
-    mapImg.onerror = () => { alert('이미지 로딩에 실패했습니다. 다른 파일로 시도해 주세요.'); };
-    mapImg.onload  = () => { userAdjustedView=false; fitCover(); };
+  function setMap(dataUrl){
+    state.mapDataUrl = dataUrl;
+    mapImg.src = dataUrl;
+    mapImg.onerror = () => { updateStatus('이미지 로딩 실패'); alert('이미지 로딩에 실패했습니다. 다른 파일로 시도해 주세요.'); };
+    mapImg.onload  = () => { userAdjustedView=false; fitCover(); updateStatus('이미지 로딩 완료'); };
     saveLocal();
   }
 
@@ -224,7 +234,7 @@
 
   function addLabelAt(clientX, clientY){
     if(!mapImg.src) return;
-    if(state.deleteMode!=='none') return;
+    if(state.deleteMode!=='none') return; // delete 모드에서 추가 방지
     const pt = clientToImagePercent(clientX, clientY);
     if(!pt) return;
     const text = dayDisplay();
@@ -371,18 +381,13 @@
 
   resetViewBtn.addEventListener('click', ()=>{ userAdjustedView=false; fitCover(); saveLocal(); });
 
+  // 업로드: iPhone 호환을 위해 FileReader(Data URL)만 사용
   mapFile.addEventListener('change', e => {
     const f = e.target.files && e.target.files[0]; if(!f) return;
-    try{
-      if(currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
-      currentBlobUrl = URL.createObjectURL(f); // 모바일에서도 안정적
-      setMap(currentBlobUrl);
-    }catch(err){
-      const reader = new FileReader();
-      reader.onload  = () => setMap(reader.result);
-      reader.onerror = () => alert('파일을 읽는 중 오류가 발생했습니다.');
-      reader.readAsDataURL(f);
-    }
+    const reader = new FileReader();
+    reader.onload  = () => setMap(reader.result);
+    reader.onerror = () => { updateStatus('파일 읽기 실패'); alert('파일을 읽는 중 오류가 발생했습니다.'); };
+    reader.readAsDataURL(f);
   });
 
   exportBtn.addEventListener('click', ()=>{
@@ -405,7 +410,7 @@
         state = Object.assign(state, obj);
         if(state.mapDataUrl && state.mapDataUrl.startsWith('blob:')) state.mapDataUrl='';
         if(state.mapDataUrl) mapImg.src = state.mapDataUrl; else mapImg.removeAttribute('src');
-        mapImg.onload = () => { userAdjustedView=false; fitCover(); };
+        mapImg.onload = () => { userAdjustedView=false; fitCover(); updateStatus('JSON 로드 완료'); };
         renderLabels();
         refreshSelections();
       }catch(err){ alert('JSON을 읽는 중 오류: '+err.message); }
@@ -417,7 +422,7 @@
   buildDaySeg();
   buildSizeSeg();
   loadLocal();
-  if(state.mapDataUrl){ mapImg.src = state.mapDataUrl; mapImg.onload = () => { userAdjustedView=false; fitCover(); }; }
+  if(state.mapDataUrl){ mapImg.src = state.mapDataUrl; mapImg.onload = () => { userAdjustedView=false; fitCover(); updateStatus('이미지 복구 완료'); }; }
   renderLabels();
   refreshSelections();
   window.addEventListener('resize', () => { if(!userAdjustedView) fitCover(); });

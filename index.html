@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>모바일 지도로 요일 라벨러 v2</title>
+  <style>
+    :root{
+      --bg:#0b0b0f; --panel:#14151a; --muted:#7f8596; --text:#e9ecf1; --accent:#5aa2ff; --danger:#ff6b6b;
+      --btn:#1c1f27; --btn2:#202431; --border:#2a3040;
+    }
+    html,body{height:100%;}
+    body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Pretendard,Apple SD Gothic Neo,Malgun Gothic,sans-serif;-webkit-tap-highlight-color: transparent}
+    .app{display:flex;flex-direction:column;gap:10px;max-width:1000px;margin:0 auto;padding:10px;}
+    .toolbar{display:grid;grid-template-columns:1fr;gap:10px;}
+    .panel{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:12px;}
+    .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+    .row label{font-size:14px;color:var(--muted)}
+    .btn{appearance:none;border:1px solid var(--border);background:var(--btn);color:var(--text);padding:10px 12px;border-radius:12px;font-size:14px;line-height:1;font-weight:600;cursor:pointer;user-select:none}
+    .btn[data-active="true"]{outline:2px solid var(--accent);}
+    .btn:active{scale:.98}
+    .btn.danger{background:#2a1515;border-color:#3a1c1c;color:#ffdede}
+    .btn.ghost{background:transparent}
+    .seg{display:inline-flex;background:var(--btn2);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+    .seg button{all:unset;padding:10px 12px;cursor:pointer;color:var(--text);font-weight:700}
+    .seg button[aria-pressed="true"]{background:var(--accent);color:black}
+
+    .map-wrap{position:relative;background:#0a0b0f;border:1px solid var(--border);border-radius:14px;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none}
+    .map-stage{position:relative;transform-origin:0 0}
+    .map-img{display:block;max-width:100%;height:auto;pointer-events:none;user-select:none}
+    .labels{position:absolute;left:0;top:0;right:0;bottom:0}
+
+    .label{position:absolute;transform:translate(-50%,-100%);padding:.35em .5em;border-radius:10px;border:1px solid rgba(255,255,255,.15);background:rgba(17,20,28,.85);color:#fff;font-weight:800;white-space:nowrap;letter-spacing:.02em;box-shadow:0 4px 10px rgba(0,0,0,.35)}
+    .label.normal{background:rgba(30,143,255,.9)}
+    .label.extended{background:rgba(255,166,0,.95)}
+    .label[data-size="25"]{font-size:10px}
+    .label[data-size="50"]{font-size:12px}
+    .label[data-size="70"]{font-size:14px}
+    .label[data-size="100"]{font-size:16px}
+
+    .hint{font-size:12px;color:var(--muted)}
+    .spacer{flex:1}
+    input[type=file]{display:none}
+    .file-label{cursor:pointer}
+
+    .grid{display:grid;gap:8px}
+    .grid.cols-2{grid-template-columns:1fr 1fr}
+
+    @media (min-width:760px){
+      .toolbar{grid-template-columns:1.2fr .8fr}
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="toolbar">
+      <div class="panel grid">
+        <div class="row">
+          <label class="file-label btn" for="mapFile">지도 업로드/교체</label>
+          <input id="mapFile" type="file" accept="image/*" />
+          <button class="btn" id="resetView" title="지도를 화면에 맞춰 재정렬">보기 리셋</button>
+          <div class="spacer"></div>
+          <button class="btn" id="exportJson">JSON 내보내기</button>
+          <label class="file-label btn" for="jsonFile">JSON 불러오기</label>
+          <input id="jsonFile" type="file" accept="application/json" />
+        </div>
+        <div class="row">
+          <div class="seg" role="group" aria-label="일반/연장 모드">
+            <button id="modeNormal" aria-pressed="true">일반</button>
+            <button id="modeExtended" aria-pressed="false">연장</button>
+          </div>
+          <div class="seg" role="group" aria-label="요일 선택" id="daySeg"></div>
+          <div class="seg" role="group" aria-label="라벨 크기" id="sizeSeg"></div>
+        </div>
+        <div class="row">
+          <div class="seg" role="group" aria-label="삭제 모드">
+            <button id="delNone" aria-pressed="true">삭제 꺼짐</button>
+            <button id="delSingle" aria-pressed="false">개별 삭제</button>
+          </div>
+          <button class="btn danger" id="delAll">모두 삭제</button>
+          <span class="hint">지도를 탭하여 라벨을 추가하세요. (핀치로 확대/축소, 드래그로 이동)</span>
+        </div>
+      </div>
+
+      <div class="panel grid">
+        <div class="row"><strong>현재 상태</strong></div>
+        <div class="row" id="status" aria-live="polite"></div>
+        <div class="row hint">자동 저장 활성화: 앱을 닫거나 새로고침해도 라벨과 지도는 유지됩니다.</div>
+      </div>
+    </div>
+
+    <div id="mapWrap" class="map-wrap" style="height:68vh">
+      <div id="stage" class="map-stage">
+        <img id="mapImg" class="map-img" alt="지도 이미지" />
+        <div id="labels" class="labels"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const $ = sel => document.querySelector(sel);
+  const mapFile = $('#mapFile');
+  const jsonFile = $('#jsonFile');
+  const mapImg = $('#mapImg');
+  const stage = $('#stage');
+  const labelsLayer = $('#labels');
+  const mapWrap = $('#mapWrap');
+  const status = $('#status');
+
+  const modeBtns = { normal: $('#modeNormal'), extended: $('#modeExtended') };
+  const daySeg = $('#daySeg');
+  const sizeSeg = $('#sizeSeg');
+  const delBtns = { none: $('#delNone'), single: $('#delSingle') };
+  const resetViewBtn = $('#resetView');
+  const delAllBtn = $('#delAll');
+  const exportBtn = $('#exportJson');
+
+  const DAYS = ['\uC6D4','\uD654','\uC218','\uBAA9','\uAE08','\uD1A0','\uC77C']; // 월~일
+  const SIZES = [25,50,70,100];
+
+  let state = {
+    mapDataUrl: '',
+    labels: [], // {xPct,yPct,text,size,kind:'normal'|'extended'}
+    mode: 'normal',
+    day: '\uC6D4',
+    size: 100,
+    deleteMode: 'none',
+    view: { scale: 1, tx: 0, ty: 0 }
+  };
+
+  // ---------- UI builders ----------
+  function buildDaySeg(){
+    daySeg.innerHTML = '';
+    for(const d of DAYS){
+      const b = document.createElement('button');
+      b.textContent = d;
+      b.setAttribute('aria-pressed', d===state.day);
+      b.addEventListener('click', () => { state.day = d; refreshSelections(); });
+      daySeg.appendChild(b);
+    }
+  }
+  function buildSizeSeg(){
+    sizeSeg.innerHTML = '';
+    for(const s of SIZES){
+      const b = document.createElement('button');
+      b.textContent = s+'%';
+      b.setAttribute('aria-pressed', s===state.size);
+      b.addEventListener('click', () => { state.size = s; refreshSelections(); });
+      sizeSeg.appendChild(b);
+    }
+  }
+  function refreshSelections(){
+    // mode
+    modeBtns.normal.setAttribute('aria-pressed', state.mode==='normal');
+    modeBtns.extended.setAttribute('aria-pressed', state.mode==='extended');
+    // day
+    [...daySeg.children].forEach(ch => ch.setAttribute('aria-pressed', ch.textContent===state.day));
+    // size
+    [...sizeSeg.children].forEach(ch => ch.setAttribute('aria-pressed', ch.textContent===state.size+'%'));
+    // delete
+    delBtns.none.setAttribute('aria-pressed', state.deleteMode==='none');
+    delBtns.single.setAttribute('aria-pressed', state.deleteMode==='single');
+    updateStatus();
+    saveLocal();
+  }
+  function dayDisplay(){
+    return state.mode==='extended' ? ('6'+state.day) : state.day; // 예: 6월, 6화...
+  }
+  function updateStatus(){
+    status.textContent = `모드: ${state.mode==='normal'?'일반':'연장'} · 요일: ${dayDisplay()} · 크기: ${state.size}% · 라벨 ${state.labels.length}개`;
+  }
+
+  // ---------- Persistence ----------
+  const LS_KEY = 'map-labeler-v2';
+  function saveLocal(){
+    try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); }catch(e){ console.warn('save failed', e); }
+  }
+  function loadLocal(){
+    try{
+      const raw = localStorage.getItem(LS_KEY);
+      if(!raw) return;
+      const obj = JSON.parse(raw);
+      if(obj && typeof obj === 'object'){
+        state = Object.assign(state, obj);
+      }
+    }catch(e){ console.warn('load failed', e); }
+  }
+  const debounce = (fn, ms=150) => { let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args), ms); } };
+
+  // ---------- Map & Labels rendering ----------
+  function setMap(dataUrl){
+    state.mapDataUrl = dataUrl;
+    mapImg.src = dataUrl;
+    mapImg.onload = () => fitView();
+    saveLocal();
+  }
+
+  function renderLabels(){
+    labelsLayer.innerHTML = '';
+    for(const lab of state.labels){
+      const el = document.createElement('div');
+      el.className = 'label ' + (lab.kind==='extended'?'extended':'normal');
+      el.dataset.size = lab.size;
+      el.textContent = lab.text;
+      el.style.left = lab.xPct + '%';
+      el.style.top = lab.yPct + '%';
+      el.addEventListener('pointerdown', ev => ev.stopPropagation(), {passive:true});
+      el.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        if(state.deleteMode==='single'){
+          const idx = state.labels.indexOf(lab);
+          if(idx>=0){ state.labels.splice(idx,1); renderLabels(); refreshSelections(); }
+        }
+      }, {passive:true});
+      labelsLayer.appendChild(el);
+    }
+  }
+
+  function addLabelAt(clientX, clientY){
+    if(!mapImg.src) return;
+    if(state.deleteMode!=='none') return; // delete mode에서 추가 방지
+    const pt = clientToImagePercent(clientX, clientY);
+    if(!pt) return;
+    const text = dayDisplay();
+    state.labels.push({ xPct: pt.xPct, yPct: pt.yPct, text, size: state.size, kind: state.mode });
+    renderLabels();
+    refreshSelections();
+  }
+
+  function clientToImagePercent(clientX, clientY){
+    const wrapRect = mapWrap.getBoundingClientRect();
+    const {scale, tx, ty} = state.view;
+    const xOnStage = (clientX - wrapRect.left - tx);
+    const yOnStage = (clientY - wrapRect.top - ty);
+    const xImg = xOnStage / scale;
+    const yImg = yOnStage / scale;
+    const naturalW = mapImg.naturalWidth || mapImg.width;
+    const naturalH = mapImg.naturalHeight || mapImg.height;
+    if(naturalW<=0 || naturalH<=0) return null;
+    const xPct = Math.max(0, Math.min(100, (xImg / naturalW) * 100));
+    const yPct = Math.max(0, Math.min(100, (yImg / naturalH) * 100));
+    return {xPct, yPct};
+  }
+
+  // ---------- Pinch Zoom & Pan with robust pointer tracking ----------
+  let pointers = new Map(); // id -> {x,y,prevX,prevY,downX,downY,downT}
+
+  function applyView(){
+    const v = state.view;
+    stage.style.transform = `translate(${v.tx}px, ${v.ty}px) scale(${v.scale})`;
+  }
+  function fitView(){
+    const naturalW = mapImg.naturalWidth || 0; const naturalH = mapImg.naturalHeight || 0;
+    if(!naturalW || !naturalH){ applyView(); return; }
+    const wrap = mapWrap.getBoundingClientRect();
+    const scale = Math.min(wrap.width / naturalW, wrap.height / naturalH) || 1;
+    const tx = (wrap.width - naturalW*scale)/2;
+    const ty = (wrap.height - naturalH*scale)/2;
+    state.view = { scale, tx, ty };
+    applyView();
+  }
+  const saveViewDebounced = debounce(saveLocal, 200);
+
+  function screenToStage(x,y){
+    const wrap = mapWrap.getBoundingClientRect();
+    const v = state.view;
+    return { x: (x - wrap.left - v.tx) / v.scale, y: (y - wrap.top - v.ty) / v.scale };
+  }
+  function clamp(v,min,max){return Math.max(min, Math.min(max, v));}
+
+  function zoomAround(factor, center){
+    const v = state.view;
+    const pre = screenToStage(center.x, center.y);
+    v.scale = clamp(v.scale * factor, 0.3, 8);
+    const post = screenToStage(center.x, center.y);
+    v.tx += (post.x - pre.x) * v.scale;
+    v.ty += (post.y - pre.y) * v.scale;
+    applyView();
+  }
+
+  mapWrap.addEventListener('pointerdown', e => {
+    mapWrap.setPointerCapture(e.pointerId);
+    pointers.set(e.pointerId, {x:e.clientX, y:e.clientY, prevX:e.clientX, prevY:e.clientY, downX:e.clientX, downY:e.clientY, downT:performance.now(), type:e.pointerType});
+  });
+
+  mapWrap.addEventListener('pointermove', e => {
+    if(!pointers.has(e.pointerId)) return;
+    const p = pointers.get(e.pointerId);
+    // store previous before updating
+    p.prevX = p.x; p.prevY = p.y; p.x = e.clientX; p.y = e.clientY;
+
+    if(pointers.size===2){
+      // pinch zoom using two tracked pointers' prev/curr distances
+      const ids = [...pointers.keys()];
+      const a = pointers.get(ids[0]);
+      const b = pointers.get(ids[1]);
+      const distPrev = Math.hypot(a.prevX - b.prevX, a.prevY - b.prevY);
+      const distCurr = Math.hypot(a.x - b.x, a.y - b.y);
+      if(distPrev>0){
+        const factor = distCurr / distPrev;
+        const mid = { x: (a.x + b.x)/2, y: (a.y + b.y)/2 };
+        zoomAround(factor, mid);
+      }
+    } else if(pointers.size===1){
+      // pan by pointer delta
+      const dx = p.x - p.prevX; const dy = p.y - p.prevY;
+      state.view.tx += dx; state.view.ty += dy; applyView(); saveViewDebounced();
+    }
+  }, {passive:true});
+
+  mapWrap.addEventListener('pointerup', e => {
+    const p = pointers.get(e.pointerId);
+    if(p){
+      const dt = performance.now() - p.downT;
+      const move = Math.hypot(e.clientX - p.downX, e.clientY - p.downY);
+      const isTap = dt < 250 && move < 6;
+      if(isTap && e.isPrimary && p.type !== 'mouse'){
+        addLabelAt(e.clientX, e.clientY);
+      }
+    }
+    pointers.delete(e.pointerId); saveLocal();
+  });
+  mapWrap.addEventListener('pointercancel', e => { pointers.delete(e.pointerId); });
+
+  // Mouse click support (separate from pointerup to 방지 중복)
+  mapWrap.addEventListener('click', e => {
+    if(e.pointerType === 'pen' || e.pointerType === 'touch') return; // 모바일 탭은 pointerup 쪽에서 처리
+    if(e.target.closest('.label')) return; // 라벨 클릭이면 무시(삭제는 라벨 자체 핸들러)
+    addLabelAt(e.clientX, e.clientY);
+  });
+
+  mapWrap.addEventListener('wheel', e => {
+    e.preventDefault();
+    const factor = Math.pow(1.0015, -e.deltaY);
+    zoomAround(factor, {x:e.clientX, y:e.clientY});
+    saveViewDebounced();
+  }, {passive:false});
+
+  // ---------- Event wiring ----------
+  modeBtns.normal.addEventListener('click', ()=>{ state.mode='normal'; refreshSelections(); });
+  modeBtns.extended.addEventListener('click', ()=>{ state.mode='extended'; refreshSelections(); });
+
+  delBtns.none.addEventListener('click', ()=>{ state.deleteMode='none'; refreshSelections(); });
+  delBtns.single.addEventListener('click', ()=>{ state.deleteMode='single'; refreshSelections(); });
+
+  delAllBtn.addEventListener('click', ()=>{
+    if(state.labels.length===0) return;
+    const ok = confirm('전체 라벨을 삭제할까요? 이 작업은 되돌릴 수 없습니다.');
+    if(ok){ state.labels = []; renderLabels(); refreshSelections(); }
+  });
+
+  resetViewBtn.addEventListener('click', ()=>{ fitView(); saveLocal(); });
+
+  mapFile.addEventListener('change', e => {
+    const f = e.target.files?.[0]; if(!f) return;
+    const reader = new FileReader();
+    reader.onload = () => { setMap(reader.result); };
+    reader.readAsDataURL(f);
+  });
+
+  exportBtn.addEventListener('click', ()=>{
+    const data = JSON.stringify(state, null, 2);
+    const blob = new Blob([data], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'map-labels.json';
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+  });
+
+  jsonFile.addEventListener('change', e => {
+    const f = e.target.files?.[0]; if(!f) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try{
+        const obj = JSON.parse(reader.result);
+        if(!obj || !('labels' in obj)) throw new Error('잘못된 JSON');
+        state = Object.assign(state, obj);
+        if(state.mapDataUrl) mapImg.src = state.mapDataUrl; else mapImg.removeAttribute('src');
+        mapImg.onload = () => fitView();
+        renderLabels();
+        refreshSelections();
+      }catch(err){ alert('JSON을 읽는 중 오류: '+err.message); }
+    };
+    reader.readAsText(f);
+  });
+
+  // ---------- Init ----------
+  buildDaySeg();
+  buildSizeSeg();
+  loadLocal();
+  if(state.mapDataUrl){ mapImg.src = state.mapDataUrl; mapImg.onload = () => fitView(); }
+  renderLabels();
+  refreshSelections();
+  window.addEventListener('resize', fitView);
+})();
+</script>
+</body>
+</html>

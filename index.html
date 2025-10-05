@@ -5,23 +5,37 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
 <title>모바일 지도로 요일+사진 라벨러</title>
 <style>
-  :root{ --bg:#0b0b0f; --panel:#14151a; --muted:#7f8596; --text:#e9ecf1; --accent:#5aa2ff; --danger:#ff6b6b; --btn:#1c1f27; --btn2:#202431; --border:#2a3040;}
+  :root{
+    --bg:#0b0b0f; --panel:#14151a; --muted:#7f8596; --text:#e9ecf1; --accent:#5aa2ff; --danger:#ff6b6b;
+    --btn:#1c1f27; --btn2:#202431; --border:#2a3040;
+  }
   html,body{height:100%; overscroll-behavior:none; touch-action:manipulation;}
-  body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Pretendard,Apple SD Gothic Neo,Malgun Gothic,sans-serif;-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,Pretendard,Apple SD Gothic Neo,Malgun Gothic,sans-serif;
+    -webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;}
   .app{display:flex;flex-direction:column;gap:10px;max-width:1000px;margin:0 auto;padding:10px;}
   .toolbar{display:grid;grid-template-columns:1fr;gap:10px;}
   .panel{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:12px;}
   .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-  .btn{appearance:none;border:1px solid var(--border);background:var(--btn);color:var(--text);padding:10px 12px;border-radius:12px;font-size:14px;line-height:1;font-weight:600;cursor:pointer}
+  .btn{appearance:none;border:1px solid var(--border);background:var(--btn);color:var(--text);
+    padding:10px 12px;border-radius:12px;font-size:14px;line-height:1;font-weight:600;cursor:pointer}
   .btn.danger{background:#2a1515;border-color:#3a1c1c;color:#ffdede}
   .seg{display:inline-flex;background:var(--btn2);border:1px solid var(--border);border-radius:12px;overflow:hidden}
   .seg button{all:unset;padding:10px 12px;cursor:pointer;color:var(--text);font-weight:700}
   .seg button[aria-pressed="true"]{background:var(--accent);color:#000}
-  .map-wrap{position:relative;background:#0a0b0f;border:1px solid var(--border);border-radius:14px;overflow:hidden;touch-action:none;height:68vh}
+
+  .map-wrap{position:relative;background:#0a0b0f;border:1px solid var(--border);border-radius:14px;overflow:hidden;
+    touch-action:none;height:68vh}
   .map-stage{position:relative;transform-origin:0 0}
   .map-img{display:block;max-width:none;height:auto;pointer-events:none;user-select:none}
   .labels{position:absolute;left:0;top:0;right:0;bottom:0}
-  .label{position:absolute; transform:translate(-50%,-100%);padding:.35em .5em;border-radius:10px;border:1px solid rgba(255,255,255,.15);background:rgba(17,20,28,.85);color:#fff;font-weight:800;white-space:nowrap;letter-spacing:.02em;box-shadow:0 4px 10px rgba(0,0,0,.35);cursor:pointer;display:flex;align-items:center;gap:4px;}
+
+  .label{
+    position:absolute; transform:translate(-50%,-100%);
+    padding:.35em .5em;border-radius:10px;border:1px solid rgba(255,255,255,.15);
+    background:rgba(17,20,28,.85);color:#fff;font-weight:800;white-space:nowrap;letter-spacing:.02em;
+    box-shadow:0 4px 10px rgba(0,0,0,.35);cursor:pointer;display:flex;align-items:center;gap:4px;
+  }
   .label.normal{background:rgba(30,143,255,.9)}
   .label.extended{background:rgba(255,166,0,.95)}
   .label[data-size="25"]{font-size:10px}
@@ -29,9 +43,12 @@
   .label[data-size="70"]{font-size:14px}
   .label[data-size="100"]{font-size:16px}
   .label.has-photo::after{content:"📷";font-size:1em;}
-  .tap-dot{position:fixed;width:10px;height:10px;border-radius:50%;background:#fff;box-shadow:0 0 0 2px rgba(0,0,0,.4);transform:translate(-50%,-50%);pointer-events:none;z-index:9999;opacity:.9;animation:fade .6s ease-out forwards}
+
+  .tap-dot{position:fixed;width:10px;height:10px;border-radius:50%;background:#fff;box-shadow:0 0 0 2px rgba(0,0,0,.4);
+    transform:translate(-50%,-50%);pointer-events:none;z-index:9999;opacity:.9;animation:fade .6s ease-out forwards}
   @keyframes fade {to {opacity:0;transform:translate(-50%,-50%) scale(.8);}}
-  .version-badge{position:fixed;right:10px;top:8px;z-index:1000;background:rgba(90,162,255,.15);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:10px;font-weight:800;font-size:13px}
+  .version-badge{position:fixed;right:10px;top:8px;z-index:1000;background:rgba(90,162,255,.15);
+    border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:10px;font-weight:800;font-size:13px}
   .photo-modal{position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:99999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.65);}
   .photo-modal img{max-width:80vw;max-height:70vh;border-radius:16px;box-shadow:0 4px 32px #000;background:#111;}
   .photo-modal .close-btn{position:absolute;top:18px;right:28px;background:#fff;color:#222;border-radius:50%;width:42px;height:42px;font-size:32px;font-weight:bold;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 0 8px #000;border:none;}
@@ -40,7 +57,7 @@
 </style>
 </head>
 <body>
-  <div class="version-badge">V2.6+</div>
+  <div class="version-badge">V2.7</div>
   <div class="app">
     <div class="toolbar">
       <div class="panel grid">
@@ -128,7 +145,7 @@
   }
 
   // 저장
-  const LS_KEY='map-labeler-v13'; function saveLocal(){ try{localStorage.setItem(LS_KEY, JSON.stringify(state));}catch{} }
+  const LS_KEY='map-labeler-v14'; function saveLocal(){ try{localStorage.setItem(LS_KEY, JSON.stringify(state));}catch{} }
   async function saveAll(){ saveLocal(); try{await idbSet('labels', state.labels);}catch{} }
   function loadLocal(){ try{const raw=localStorage.getItem(LS_KEY); if(raw){const obj=JSON.parse(raw); if(obj && typeof obj==='object') state=Object.assign(state,obj);} if(state.mapDataUrl?.startsWith('blob:')) state.mapDataUrl=''; }catch{} }
 
@@ -182,7 +199,11 @@
     showTapDot(clientX, clientY);
     const pt = clientToPercentOnStage(clientX, clientY);
     if(!pt) return;
-    if(state.photoMode==='on') { pendingLabelCoord = pt; photoInput.value = ""; photoInput.click(); }
+    if(state.photoMode==='on') { 
+      pendingLabelCoord = pt; 
+      photoInput.value = ""; 
+      photoInput.click(); 
+    }
     else { createLabel(pt, null);}
   }
   function createLabel(pt, photoDataUrl){
